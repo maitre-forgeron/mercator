@@ -1,9 +1,6 @@
 ﻿using Mercator.BuildingBlocks.Application.Execution;
 using Mercator.Identity.Abstractions;
-using Mercator.Identity.Core.Application.Contracts;
-using Mercator.Identity.Core.Application.Login;
 using Mercator.Identity.Core.Application.Me;
-using Mercator.Identity.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Mercator.Identity.Features;
