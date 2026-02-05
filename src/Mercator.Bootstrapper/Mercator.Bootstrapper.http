@@ -1,0 +1,6 @@
+@Mercator.Bootstrapper_HostAddress = http://localhost:5012
+
+GET {{Mercator.Bootstrapper_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

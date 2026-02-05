@@ -1,0 +1,55 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mercator.AppHost/Mercator.AppHost.csproj" />
+    <Project Path="src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj" Id="75def645-cabc-43d5-b2bd-eaad9e5008eb" />
+    <Project Path="src/Mercator.BuildingBlocks/Mercator.BuildingBlocks.csproj" Id="f501b600-66e1-434b-8c8d-42ad54b07931" />
+    <Project Path="src/Mercator.ServiceDefaults/Mercator.ServiceDefaults.csproj" />
+    <Project Path="src/Mercator.SharedKernel/Mercator.SharedKernel.csproj" Id="e20f5611-3a6a-4d95-bb9d-5132f801ef9c" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Catalog/">
+    <Project Path="src/Modules/Catalog/Mercator.Catalog.Api/Mercator.Catalog.Api.csproj" Id="14e14457-d479-443f-9e18-b7e8fd72a4be" />
+    <Project Path="src/Modules/Catalog/Mercator.Catalog.Application/Mercator.Catalog.Application.csproj" Id="c0ec2462-12ca-4abf-b28c-dcfe0a6b62cd" />
+    <Project Path="src/Modules/Catalog/Mercator.Catalog.Domain/Mercator.Catalog.Domain.csproj" Id="f5843d69-6b34-4d3b-b0d5-747eb23a160a" />
+    <Project Path="src/Modules/Catalog/Mercator.Catalog.Infrastructure/Mercator.Catalog.Infrastructure.csproj" Id="ad2a6b74-e817-40b6-b5d0-85d4c938ca96" />
+  </Folder>
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/Mercator.Identity/Mercator.Identity.csproj" Id="8e38c8c2-4816-4fd5-9b7f-538c5b0a7b62" />
+  </Folder>
+  <Folder Name="/src/Modules/Integrations/">
+    <Project Path="src/Modules/Integrations/Mercator.Integrations.Abstractions/Mercator.Integrations.Abstractions.csproj" Id="12e767c0-c712-48c6-8ce6-59596c351c86" />
+    <Project Path="src/Modules/Integrations/Mercator.Integrations.OkCapsule/Mercator.Integrations.OkCapsule.csproj" Id="5f371bb0-3154-4645-8813-1773ffa30dfd" />
+  </Folder>
+  <Folder Name="/src/Modules/Logistics/">
+    <Project Path="src/Modules/Logistics/Mercator.Logistics.Api/Mercator.Logistics.Api.csproj" Id="96165f04-f54a-4490-83ef-e8aeda47cb06" />
+    <Project Path="src/Modules/Logistics/Mercator.Logistics.Application/Mercator.Logistics.Application.csproj" Id="22c66a49-91fe-4db1-847f-93d6d59db6e6" />
+    <Project Path="src/Modules/Logistics/Mercator.Logistics.Domain/Mercator.Logistics.Domain.csproj" Id="13b1ffe0-b23c-4ac1-8600-7f40eb182cb9" />
+    <Project Path="src/Modules/Logistics/Mercator.Logistics.Infrastructure/Mercator.Logistics.Infrastructure.csproj" Id="d5259915-fe90-4df7-89cc-a1fe2f9cbe61" />
+  </Folder>
+  <Folder Name="/src/Modules/Notifications/">
+    <Project Path="src/Modules/Notifications/Mercator.Notifications.Api/Mercator.Notifications.Api.csproj" Id="caf9d79c-f462-45ab-bc43-1ba15eae6dd3" />
+    <Project Path="src/Modules/Notifications/Mercator.Notifications.Application/Mercator.Notifications.Application.csproj" Id="b1ab014b-06f0-410c-bb2c-eb3eae1a7292" />
+    <Project Path="src/Modules/Notifications/Mercator.Notifications.Domain/Mercator.Notifications.Domain.csproj" Id="8d66a5f9-cf70-438e-a435-7aff5e600ce3" />
+    <Project Path="src/Modules/Notifications/Mercator.Notifications.Infrastructure/Mercator.Notifications.Infrastructure.csproj" Id="c7c470d1-633f-4a4f-aee3-76cb0a703df7" />
+  </Folder>
+  <Folder Name="/src/Modules/Orders/">
+    <Project Path="src/Modules/Orders/Mercator.Orders.Api/Mercator.Orders.Api.csproj" Id="88f98ae4-79d1-4c85-bc87-ccd89eb2a37b" />
+    <Project Path="src/Modules/Orders/Mercator.Orders.Application/Mercator.Orders.Application.csproj" Id="27090a2a-15af-4daf-a6d5-070e0618482b" />
+    <Project Path="src/Modules/Orders/Mercator.Orders.Domain/Mercator.Orders.Domain.csproj" Id="f919ad0a-726a-4c9b-833c-f563ca02a2f2" />
+    <Project Path="src/Modules/Orders/Mercator.Orders.Infrastructure/Mercator.Orders.Infrastructure.csproj" Id="59b80d2c-af81-4935-8b06-eb362c68a356" />
+  </Folder>
+  <Folder Name="/src/Modules/Payments/">
+    <Project Path="src/Modules/Payments/Mercator.Payments.Api/Mercator.Payments.Api.csproj" Id="1106be45-1ec9-45e2-89d7-ef3660b74132" />
+    <Project Path="src/Modules/Payments/Mercator.Payments.Application/Mercator.Payments.Application.csproj" Id="b86b831b-627d-4ac5-964d-8e1d85d0bde0" />
+    <Project Path="src/Modules/Payments/Mercator.Payments.Domain/Mercator.Payments.Domain.csproj" Id="17452148-4a53-451d-a64e-65b5fb27c6f9" />
+    <Project Path="src/Modules/Payments/Mercator.Payments.Infrastructure/Mercator.Payments.Infrastructure.csproj" Id="18ccc45a-89bc-4f7d-9215-9c553d9b1422" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mercator.Architecture.Tests/Mercator.Architecture.Tests.csproj" Id="145d18a9-cf13-40f0-af44-7eddf0053653" />
+    <Project Path="tests/Mercator.Catalog.Tests/Mercator.Catalog.Tests.csproj" Id="1f4c3198-46f7-4613-9be1-8961c0a75bf0" />
+    <Project Path="tests/Mercator.Logistics.Tests/Mercator.Logistics.Tests.csproj" Id="10615b67-a19c-4ce3-b1c2-5fc5a8957f80" />
+    <Project Path="tests/Mercator.Notifications.Tests/Mercator.Notifications.Tests.csproj" Id="d795821f-adcc-40c9-894c-880a84f6d2cf" />
+    <Project Path="tests/Mercator.Orders.Tests/Mercator.Orders.Tests.csproj" Id="c353b896-a6a2-4865-a352-11c2f2b65674" />
+    <Project Path="tests/Mercator.Payments.Tests/Mercator.Payments.Tests.csproj" Id="b191da7b-d9c3-4ad5-a501-8ba1b6dcbec7" />
+  </Folder>
+</Solution>

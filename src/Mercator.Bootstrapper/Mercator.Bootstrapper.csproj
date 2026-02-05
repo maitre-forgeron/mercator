@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mercator.ServiceDefaults\Mercator.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Modules\Catalog\Mercator.Catalog.Api\Mercator.Catalog.Api.csproj" />
+    <ProjectReference Include="..\Modules\Identity\Mercator.Identity\Mercator.Identity.csproj" />
+    <ProjectReference Include="..\Modules\Logistics\Mercator.Logistics.Api\Mercator.Logistics.Api.csproj" />
+    <ProjectReference Include="..\Modules\Notifications\Mercator.Notifications.Api\Mercator.Notifications.Api.csproj" />
+    <ProjectReference Include="..\Modules\Orders\Mercator.Orders.Api\Mercator.Orders.Api.csproj" />
+    <ProjectReference Include="..\Modules\Payments\Mercator.Payments.Api\Mercator.Payments.Api.csproj" />
+  </ItemGroup>
+
+</Project>
