@@ -50,7 +50,7 @@ jobs:
       run: dotnet build Mercator.slnx --configuration Release --no-restore
       
     - name: Test (Release) + TRX
-      run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+      run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal --logger "trx" --results-directory ./TestResults
 
     - name: Test Report (GitHub UI)
       if: always()
