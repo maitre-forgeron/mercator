@@ -1,0 +1,102 @@
+name: Aspire Compose
+
+on:
+  workflow_run:
+    workflows: ["Publish Images"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compose:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    env:
+      APPHOST: src/Mercator.AppHost/Mercator.AppHost.csproj
+
+    steps:
+      - name: Checkout (same commit that was published)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          include-prerelease: true
+
+      - name: Install Aspire CLI
+        run: dotnet tool install --global Aspire.Cli
+
+      - name: Generate Docker Compose artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ./artifacts/compose
+          mkdir -p ./artifacts/compose
+
+          aspire publish "${{ env.APPHOST }}" -o ./artifacts/compose
+
+          echo "Generated:"
+          ls -la ./artifacts/compose
+
+      # Download artifact from the triggering workflow run
+      - name: Download deploy info from Publish Images run
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          name: deploy-info
+          path: ./artifacts/deploy-info
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fill Aspire .env with published image tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source ./artifacts/deploy-info/deploy-info.env
+
+          echo "Using:"
+          echo "  FULL_REPO=$FULL_REPO"
+          echo "  DEPLOY_TAG=$DEPLOY_TAG"
+          echo "  PORT=$PORT"
+
+          cd ./artifacts/compose
+
+          IMAGE="${FULL_REPO}:${DEPLOY_TAG}"
+          PG_PASSWORD="ci-password"
+
+          upsert () {
+            local key="$1" value="$2"
+            if grep -qE "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              echo "${key}=${value}" >> .env
+            fi
+          }
+
+          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "${IMAGE}"
+          upsert "MERCATOR_BOOTSTRAPPER_PORT" "${PORT}"
+          upsert "PG_PASSWORD" "${PG_PASSWORD}"
+
+          echo "Final .env:"
+          cat .env
+
+      - name: Validate docker-compose config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./artifacts/compose
+          docker compose --env-file .env config
+
+      - name: Upload compose artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspire-compose-artifacts
+          path: ./artifacts/compose/**
+          if-no-files-found: warn
