@@ -33,13 +33,13 @@ jobs:
           set -euo pipefail
 
           echo "Downloaded artifact tree:"
-          find ./compose -maxdepth 4 -type f -print
+          find ./compose -maxdepth 6 -type f -print
 
           ENV_FILE="$(find ./compose -type f \( -name "env.txt" -o -name ".env" \) | head -n 1 || true)"
           COMPOSE_FILE="$(find ./compose -type f -name "docker-compose.yaml" | head -n 1 || true)"
 
           if [ -z "$ENV_FILE" ]; then
-            echo "❌ Could not find .env in downloaded artifacts"
+            echo "❌ Could not find env.txt or .env in downloaded artifacts"
             exit 1
           fi
 
@@ -50,13 +50,19 @@ jobs:
 
           COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
 
+          # We will cd into COMPOSE_DIR, so give compose only basenames.
+          ENV_BASENAME="$(basename "$ENV_FILE")"
+          COMPOSE_BASENAME="$(basename "$COMPOSE_FILE")"
+
           echo "ENV_FILE=$ENV_FILE"
           echo "COMPOSE_FILE=$COMPOSE_FILE"
           echo "COMPOSE_DIR=$COMPOSE_DIR"
+          echo "ENV_BASENAME=$ENV_BASENAME"
+          echo "COMPOSE_BASENAME=$COMPOSE_BASENAME"
 
-          echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
-          echo "compose_file=$COMPOSE_FILE" >> "$GITHUB_OUTPUT"
           echo "compose_dir=$COMPOSE_DIR" >> "$GITHUB_OUTPUT"
+          echo "env_file=$ENV_BASENAME" >> "$GITHUB_OUTPUT"
+          echo "compose_file=$COMPOSE_BASENAME" >> "$GITHUB_OUTPUT"
 
       - name: Validate compose config
         shell: bash
