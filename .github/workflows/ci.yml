@@ -11,6 +11,8 @@ on:
 
 permissions: 
   contents: read
+  actions: read
+  checks: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -50,10 +52,11 @@ jobs:
     - name: Test (Release) + TRX
       run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
-    - name: Upload test results (TRX)
+    - name: Test Report (GitHub UI)
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: dorny/test-reporter@v1
       with:
-          name: test-results-trx
+          name: Tests
           path: ./TestResults/**/*.trx
-          if-no-files-found: warn
+          reporter: dotnet-trx
+          fail-on-error: false
