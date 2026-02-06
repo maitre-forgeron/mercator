@@ -64,6 +64,7 @@ jobs:
   aspire-compose-build:
     name: Aspire compose build (no push)
     runs-on: ubuntu-latest
+    needs: build-and-test
     if: github.ref == 'refs/heads/master'
 
     steps:
@@ -78,28 +79,80 @@ jobs:
       - name: Install Aspire CLI
         run: dotnet tool install --global Aspire.Cli
 
-      - name: Generate Docker Compose artifacts from AppHost
+      - name: Generate Docker Compose artifacts
+        shell: bash
         run: |
+          set -euo pipefail
           rm -rf ./artifacts/compose
           mkdir -p ./artifacts/compose
 
           APPHOST="src/Mercator.AppHost/Mercator.AppHost.csproj"
-
           aspire publish "$APPHOST" -o ./artifacts/compose
 
-      - name: List compose artifacts
-        if: always()
-        run: |
+          echo "Generated:"
           ls -la ./artifacts/compose
 
-      - name: Validate + build images (env auto-detect)
+      - name: Build bootstrapper image locally (no push)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BOOTSTRAPPER_CSPROJ="src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj"
+          TAG="${GITHUB_SHA::7}"
+
+          # Build local docker image via .NET container publishing
+          dotnet publish "$BOOTSTRAPPER_CSPROJ" -c Release \
+            /t:PublishContainer \
+            -p:ContainerImageName=mercator-bootstrapper \
+            -p:ContainerImageTag="$TAG"
+
+          echo "Built images:"
+          docker images | head -n 30
+
+      - name: Fill .env placeholders for compose
+        shell: bash
         run: |
           set -euo pipefail
           cd ./artifacts/compose
-      
-          ENV_FILE=".env"
-          if [ -f ".env.Production" ]; then ENV_FILE=".env.Production"; fi
-      
-          echo "Using env file: $ENV_FILE"
-          docker compose --env-file "$ENV_FILE" config
-          docker compose --env-file "$ENV_FILE" build --pull
+
+          TAG="${GITHUB_SHA::7}"
+
+          # Pick a deterministic port your app listens on in container.
+          # 8080 is the common default for ASP.NET containers; change if your app uses another.
+          PORT="8080"
+
+          # Set PG_PASSWORD to something (compose config/build needs it resolved)
+          # This is NOT used for prod here; it's only to make compose valid in CI.
+          PG_PASSWORD="ci-password"
+
+          # Update .env (append if missing)
+          upsert () {
+            local key="$1" value="$2"
+            if grep -qE "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              echo "${key}=${value}" >> .env
+            fi
+          }
+
+          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "mercator-bootstrapper:${TAG}"
+          upsert "MERCATOR_BOOTSTRAPPER_PORT" "${PORT}"
+          upsert "PG_PASSWORD" "${PG_PASSWORD}"
+
+          echo "Final .env:"
+          cat .env
+
+      - name: Compose build (no push)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./artifacts/compose
+          docker compose --env-file .env build --pull
+
+      - name: Upload compose artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspire-compose-artifacts
+          path: ./artifacts/compose/**
+          if-no-files-found: warn
