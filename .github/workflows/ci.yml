@@ -47,5 +47,13 @@ jobs:
     - name: Build (Release)
       run: dotnet build Mercator.slnx --configuration Release --no-restore
       
-    - name: Test (Release)
-      run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal
+    - name: Test (Release) + TRX
+      run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+
+    - name: Upload test results (TRX)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+          name: test-results-trx
+          path: ./TestResults/**/*.trx
+          if-no-files-found: warn
