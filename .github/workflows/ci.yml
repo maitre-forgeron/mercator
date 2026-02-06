@@ -31,10 +31,10 @@ jobs:
         dotnet-version: 10.0.x
         
     - name: Restore
-      run: dotnet restore mercator/Mercator.slnx
+      run: dotnet restore Mercator.slnx
       
     - name: Build (Release)
-      run: dotnet build mercator/Mercator.slnx --configuration Release --no-restore
+      run: dotnet build Mercator.slnx --configuration Release --no-restore
       
     - name: Test (Release)
-      run: dotnet test mercator/Mercator.slnx --configuration Release --no-build --verbosity normal
+      run: dotnet test Mercator.slnx --configuration Release --no-build --verbosity normal
