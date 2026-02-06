@@ -219,7 +219,7 @@ jobs:
 
           dotnet publish "$BOOTSTRAPPER_CSPROJ" -c Release \
             /t:PublishContainer \
-            -p:ContainerImageName=mercator-bootstrapper \
+            -p:ContainerRepository=ghcr.io/${{ github.repository_owner }}/mercator-bootstrapper \
             -p:ContainerImageTag="$LOCAL_TAG"
 
           echo "Built local image mercator-bootstrapper:${LOCAL_TAG}"
