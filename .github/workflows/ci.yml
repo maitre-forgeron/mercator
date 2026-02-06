@@ -60,3 +60,39 @@ jobs:
           path: ./TestResults/**/*.trx
           reporter: dotnet-trx
           fail-on-error: false
+
+  aspire-compose-build:
+    name: Aspire compose build (no push)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Aspire CLI
+        run: dotnet tool install --global aspire
+
+      - name: Generate Docker Compose artifacts from AppHost
+        run: |
+          rm -rf ./artifacts/compose
+          mkdir -p ./artifacts/compose
+
+          APPHOST="src/Mercator.AppHost/Mercator.AppHost.csproj"
+
+          aspire publish "$APPHOST" -o ./artifacts/compose
+
+      - name: Validate docker-compose (Production env)
+        run: |
+          cd ./artifacts/compose
+          docker compose --env-file .env.Production config
+
+      - name: Build images (Production env, no push)
+        run: |
+          cd ./artifacts/compose
+          docker compose --env-file .env.Production build --pull
