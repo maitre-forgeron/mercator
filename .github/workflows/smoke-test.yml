@@ -1,0 +1,119 @@
+name: Smoke Test (Compose)
+
+on:
+  workflow_run:
+    workflows: ["Aspire Compose"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download compose artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          name: aspire-compose-artifacts
+          path: ./compose
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show downloaded files
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la ./compose
+          echo "---- .env ----"
+          cat ./compose/.env || true
+          echo "---- docker-compose.yaml ----"
+          head -n 80 ./compose/docker-compose.yaml
+
+      - name: Validate compose config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./compose
+          docker compose --env-file .env config
+
+      - name: Start stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./compose
+          docker compose --env-file .env up -d
+          docker compose ps
+
+      - name: Smoke test (curl inside compose network)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./compose
+
+          # Read port from .env
+          PORT="$(grep -E '^MERCATOR_BOOTSTRAPPER_PORT=' .env | cut -d= -f2)"
+          if [ -z "$PORT" ]; then
+            echo "MERCATOR_BOOTSTRAPPER_PORT not set in .env"
+            exit 1
+          fi
+
+          # Infer network name: compose creates "<project>_aspire" typically.
+          # We'll find the single network that ends with "_aspire" (or exactly "aspire")
+          NETWORK="$(docker network ls --format '{{.Name}}' | grep -E '(^|_)aspire$' | head -n 1 || true)"
+          if [ -z "$NETWORK" ]; then
+            # fallback: compose project name is directory name
+            PROJECT="$(basename "$(pwd)")"
+            NETWORK="${PROJECT}_aspire"
+          fi
+
+          echo "Network: $NETWORK"
+          echo "Port: $PORT"
+
+          # Wait up to 90s for /health
+          for i in {1..45}; do
+            set +e
+            docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
+              -fsS "http://mercator-bootstrapper:${PORT}/health" >/dev/null
+            ok1=$?
+
+            set -e
+
+            if [ $ok1 -eq 0 ] ; then
+              echo "✅ Smoke test passed"
+              exit 0
+            fi
+
+            echo "Waiting for service... ($i/45)"
+            sleep 2
+          done
+
+          echo "❌ Smoke test failed (timeout)"
+          exit 1
+
+      - name: Capture logs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./compose
+          docker compose --env-file .env logs --no-color > ../compose-logs.txt || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-logs
+          path: ./compose-logs.txt
+          if-no-files-found: warn
+
+      - name: Tear down
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./compose
+          docker compose --env-file .env down -v --remove-orphans || true
