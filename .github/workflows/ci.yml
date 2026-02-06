@@ -92,6 +92,24 @@ jobs:
           echo "Generated:"
           ls -la ./artifacts/compose
 
+      - name: Compute deploy image tag for .env
+        id: deploytag
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          # For master runs, we use immutable sha tag (matches what you publish)
+          DEPLOY_TAG="sha-${SHORT_SHA}"
+
+          # If later you trigger on tags (refs/tags/vX.Y.Z), use the semver tag
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            DEPLOY_TAG="${GITHUB_REF#refs/tags/v}"
+          fi
+
+          echo "deploy_tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Deploy tag: ${DEPLOY_TAG}"
+
       - name: Build bootstrapper image locally (no push)
         shell: bash
         run: |
@@ -103,8 +121,8 @@ jobs:
           # Build local docker image via .NET container publishing
           dotnet publish "$BOOTSTRAPPER_CSPROJ" -c Release \
             /t:PublishContainer \
-            -p:ContainerImageName=mercator-bootstrapper \
-            -p:ContainerImageTag="$TAG"
+            -p:ContainerRepository=ghcr.io/${{ github.repository_owner }}/mercator-bootstrapper
+            -p:ContainerImageTag="local-${GITHUB_SHA::7}"
 
           echo "Built images:"
           docker images | head -n 30
@@ -115,17 +133,16 @@ jobs:
           set -euo pipefail
           cd ./artifacts/compose
 
-          TAG="${GITHUB_SHA::7}"
+          OWNER="${{ github.repository_owner }}"
+          DEPLOY_TAG="${{ steps.deploytag.outputs.deploy_tag }}"
+          IMAGE="ghcr.io/${OWNER}/mercator-bootstrapper:${DEPLOY_TAG}"
 
-          # Pick a deterministic port your app listens on in container.
-          # 8080 is the common default for ASP.NET containers; change if your app uses another.
+          # Choose the container port your app listens on in container.
           PORT="8080"
 
-          # Set PG_PASSWORD to something (compose config/build needs it resolved)
-          # This is NOT used for prod here; it's only to make compose valid in CI.
+          # CI-only password so compose variables resolve
           PG_PASSWORD="ci-password"
 
-          # Update .env (append if missing)
           upsert () {
             local key="$1" value="$2"
             if grep -qE "^${key}=" .env; then
@@ -135,7 +152,7 @@ jobs:
             fi
           }
 
-          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "mercator-bootstrapper:${TAG}"
+          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "${IMAGE}"
           upsert "MERCATOR_BOOTSTRAPPER_PORT" "${PORT}"
           upsert "PG_PASSWORD" "${PG_PASSWORD}"
 
