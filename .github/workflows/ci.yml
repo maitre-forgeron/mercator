@@ -87,12 +87,19 @@ jobs:
 
           aspire publish "$APPHOST" -o ./artifacts/compose
 
-      - name: Validate docker-compose (Production env)
+      - name: List compose artifacts
+        if: always()
         run: |
-          cd ./artifacts/compose
-          docker compose --env-file .env.Production config
+          ls -la ./artifacts/compose
 
-      - name: Build images (Production env, no push)
+      - name: Validate + build images (env auto-detect)
         run: |
+          set -euo pipefail
           cd ./artifacts/compose
-          docker compose --env-file .env.Production build --pull
+      
+          ENV_FILE=".env"
+          if [ -f ".env.Production" ]; then ENV_FILE=".env.Production"; fi
+      
+          echo "Using env file: $ENV_FILE"
+          docker compose --env-file "$ENV_FILE" config
+          docker compose --env-file "$ENV_FILE" build --pull
