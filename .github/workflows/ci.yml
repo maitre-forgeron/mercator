@@ -76,7 +76,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Install Aspire CLI
-        run: dotnet tool install --global aspire
+        run: dotnet tool install --global Aspire.Cli
 
       - name: Generate Docker Compose artifacts from AppHost
         run: |
