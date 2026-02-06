@@ -93,10 +93,17 @@ jobs:
           cd ./artifacts/compose
           docker compose --env-file .env config
 
+      - name: Debug compose dir
+        run: |
+          ls -la ./artifacts/compose
+
       - name: Upload compose artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aspire-compose-artifacts
-          path: ./artifacts/compose/**
+          path: |
+            ./artifacts/compose/.env
+            ./artifacts/compose/docker-compose.yaml
+            ./artifacts/compose/**/*
           if-no-files-found: warn
