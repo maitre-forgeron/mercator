@@ -214,7 +214,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          BOOTSTRAPPER_CSPROJ="mercator/src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj"
+          BOOTSTRAPPER_CSPROJ="src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj"
           LOCAL_TAG="local-${GITHUB_SHA::7}"
 
           dotnet publish "$BOOTSTRAPPER_CSPROJ" -c Release \
