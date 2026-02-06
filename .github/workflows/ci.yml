@@ -230,12 +230,14 @@ jobs:
           set -euo pipefail
 
           LOCAL_TAG="local-${GITHUB_SHA::7}"
+          SOURCE_IMAGE="ghcr.io/${{ github.repository_owner }}/mercator-bootstrapper:${LOCAL_TAG}"
+          
           IFS=',' read -ra TAGS <<< "${{ steps.tags.outputs.tags }}"
-
+          
           for t in "${TAGS[@]}"; do
-            REMOTE_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${t}"
+            REMOTE_IMAGE="ghcr.io/${{ github.repository_owner }}/mercator-bootstrapper:${t}"
             echo "Pushing ${REMOTE_IMAGE}"
-
-            docker tag "mercator-bootstrapper:${LOCAL_TAG}" "${REMOTE_IMAGE}"
+          
+            docker tag "${SOURCE_IMAGE}" "${REMOTE_IMAGE}"
             docker push "${REMOTE_IMAGE}"
           done
