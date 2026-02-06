@@ -11,7 +11,10 @@ permissions:
 
 jobs:
   smoke:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only run when Aspire Compose succeeded AND the originating branch is master
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master'
     runs-on: ubuntu-latest
 
     steps:
@@ -23,66 +26,78 @@ jobs:
           path: ./compose
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show downloaded files
+      - name: Locate compose directory
+        id: loc
         shell: bash
         run: |
           set -euo pipefail
-          ls -la ./compose
-          echo "---- .env ----"
-          cat ./compose/.env || true
-          echo "---- docker-compose.yaml ----"
-          head -n 80 ./compose/docker-compose.yaml
+
+          echo "Downloaded artifact tree:"
+          find ./compose -maxdepth 4 -type f -print
+
+          ENV_FILE="$(find ./compose -type f -name ".env" | head -n 1 || true)"
+          COMPOSE_FILE="$(find ./compose -type f -name "docker-compose.yaml" | head -n 1 || true)"
+
+          if [ -z "$ENV_FILE" ]; then
+            echo "❌ Could not find .env in downloaded artifacts"
+            exit 1
+          fi
+
+          if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Could not find docker-compose.yaml in downloaded artifacts"
+            exit 1
+          fi
+
+          COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
+
+          echo "ENV_FILE=$ENV_FILE"
+          echo "COMPOSE_FILE=$COMPOSE_FILE"
+          echo "COMPOSE_DIR=$COMPOSE_DIR"
+
+          echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
+          echo "compose_file=$COMPOSE_FILE" >> "$GITHUB_OUTPUT"
+          echo "compose_dir=$COMPOSE_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Validate compose config
         shell: bash
         run: |
           set -euo pipefail
-          cd ./compose
-          docker compose --env-file .env config
+          cd "${{ steps.loc.outputs.compose_dir }}"
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" config
 
       - name: Start stack
         shell: bash
         run: |
           set -euo pipefail
-          cd ./compose
-          docker compose --env-file .env up -d
-          docker compose ps
+          cd "${{ steps.loc.outputs.compose_dir }}"
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" up -d
+          docker compose -f "${{ steps.loc.outputs.compose_file }}" ps
 
       - name: Smoke test (curl inside compose network)
         shell: bash
         run: |
           set -euo pipefail
-          cd ./compose
+          cd "${{ steps.loc.outputs.compose_dir }}"
 
-          # Read port from .env
-          PORT="$(grep -E '^MERCATOR_BOOTSTRAPPER_PORT=' .env | cut -d= -f2)"
+          PORT="$(grep -E '^MERCATOR_BOOTSTRAPPER_PORT=' "${{ steps.loc.outputs.env_file }}" | cut -d= -f2 | tr -d '\r' || true)"
           if [ -z "$PORT" ]; then
-            echo "MERCATOR_BOOTSTRAPPER_PORT not set in .env"
+            echo "❌ MERCATOR_BOOTSTRAPPER_PORT not set in env file"
             exit 1
           fi
 
-          # Infer network name: compose creates "<project>_aspire" typically.
-          # We'll find the single network that ends with "_aspire" (or exactly "aspire")
           NETWORK="$(docker network ls --format '{{.Name}}' | grep -E '(^|_)aspire$' | head -n 1 || true)"
           if [ -z "$NETWORK" ]; then
-            # fallback: compose project name is directory name
             PROJECT="$(basename "$(pwd)")"
             NETWORK="${PROJECT}_aspire"
           fi
 
           echo "Network: $NETWORK"
           echo "Port: $PORT"
+          echo "Probing http://mercator-bootstrapper:${PORT}/health"
 
-          # Wait up to 90s for /health
           for i in {1..45}; do
-            set +e
-            docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
-              -fsS "http://mercator-bootstrapper:${PORT}/health" >/dev/null
-            ok1=$?
-
-            set -e
-
-            if [ $ok1 -eq 0 ] ; then
+            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
+              -fsS "http://mercator-bootstrapper:${PORT}/health" >/dev/null; then
               echo "✅ Smoke test passed"
               exit 0
             fi
@@ -92,6 +107,10 @@ jobs:
           done
 
           echo "❌ Smoke test failed (timeout)"
+          echo "--- docker compose ps ---"
+          docker compose -f "${{ steps.loc.outputs.compose_file }}" ps || true
+          echo "--- docker compose logs (last 200 lines) ---"
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" logs --no-color --tail=200 || true
           exit 1
 
       - name: Capture logs
@@ -99,8 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd ./compose
-          docker compose --env-file .env logs --no-color > ../compose-logs.txt || true
+          cd "${{ steps.loc.outputs.compose_dir }}"
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" logs --no-color > "${{ github.workspace }}/compose-logs.txt" || true
 
       - name: Upload logs
         if: always()
@@ -115,5 +134,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd ./compose
-          docker compose --env-file .env down -v --remove-orphans || true
+          cd "${{ steps.loc.outputs.compose_dir }}"
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" down -v --remove-orphans || true
