@@ -1,0 +1,137 @@
+name: Publish Images
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+jobs:
+  publish:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.head_branch == 'master' || startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+
+    env:
+      REGISTRY: ghcr.io
+      OWNER: ${{ github.repository_owner }}
+      IMAGE_REPO: mercator-bootstrapper
+      BOOTSTRAPPER_CSPROJ: src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj
+
+    steps:
+      - name: Checkout (same commit CI tested)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          include-prerelease: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${SHA:0:7}"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+
+          # Push tags
+          PUSH_TAGS="sha-${SHORT_SHA}"
+          DEPLOY_TAG="sha-${SHORT_SHA}"
+
+          if [[ "$BRANCH" == "master" ]]; then
+            PUSH_TAGS="${PUSH_TAGS},latest"
+          fi
+
+          if [[ "$BRANCH" == v* ]]; then
+            VERSION="${BRANCH#v}"
+            PUSH_TAGS="${PUSH_TAGS},${VERSION}"
+            DEPLOY_TAG="${VERSION}"
+          fi
+
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "push_tags=${PUSH_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "deploy_tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+
+          echo "Branch: $BRANCH"
+          echo "Short SHA: $SHORT_SHA"
+          echo "Push tags: $PUSH_TAGS"
+          echo "Deploy tag: $DEPLOY_TAG"
+
+      - name: Build local image via .NET (no Dockerfile)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
+          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+
+          dotnet publish "${{ env.BOOTSTRAPPER_CSPROJ }}" -c Release \
+            /t:PublishContainer \
+            -p:ContainerRepository="$FULL_REPO" \
+            -p:ContainerImageTag="$LOCAL_TAG"
+
+          echo "Built: $FULL_REPO:$LOCAL_TAG"
+          docker images | head -n 30
+
+      - name: Tag + push to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
+          SOURCE_IMAGE="${FULL_REPO}:${LOCAL_TAG}"
+
+          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
+
+          for t in "${TAGS[@]}"; do
+            REMOTE_IMAGE="${FULL_REPO}:${t}"
+            echo "Pushing ${REMOTE_IMAGE}"
+            docker tag "${SOURCE_IMAGE}" "${REMOTE_IMAGE}"
+            docker push "${REMOTE_IMAGE}"
+          done
+
+      - name: Write deploy info artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./artifacts
+
+          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          DEPLOY_TAG="${{ steps.meta.outputs.deploy_tag }}"
+
+          # Put whatever else you want Aspire to consume here (port, etc.)
+          PORT="8080"
+
+          cat > ./artifacts/deploy-info.env <<EOF
+          FULL_REPO=${FULL_REPO}
+          DEPLOY_TAG=${DEPLOY_TAG}
+          PORT=${PORT}
+          EOF
+
+          echo "deploy-info.env:"
+          cat ./artifacts/deploy-info.env
+
+      - name: Upload deploy info
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-info
+          path: ./artifacts/deploy-info.env
+          if-no-files-found: error
