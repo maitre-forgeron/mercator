@@ -35,7 +35,7 @@ jobs:
           echo "Downloaded artifact tree:"
           find ./compose -maxdepth 4 -type f -print
 
-          ENV_FILE="$(find ./compose -type f -name ".env" | head -n 1 || true)"
+          ENV_FILE="$(find ./compose -type f \( -name "env.txt" -o -name ".env" \) | head -n 1 || true)"
           COMPOSE_FILE="$(find ./compose -type f -name "docker-compose.yaml" | head -n 1 || true)"
 
           if [ -z "$ENV_FILE" ]; then
