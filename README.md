@@ -96,7 +96,7 @@ If this prints client/server info, you’re good.
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/maitre-forgeron/mercator.git
 cd mercator
 ```
 
