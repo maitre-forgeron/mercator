@@ -97,13 +97,17 @@ jobs:
         run: |
           ls -la ./artifacts/compose
 
+      - name: Copy .env to env.txt (artifact-friendly)
+        run: cp ./artifacts/compose/.env ./artifacts/compose/env.txt
+
+
       - name: Upload compose artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aspire-compose-artifacts
           path: |
-            ./artifacts/compose/.env
+            ./artifacts/compose/env.txt
             ./artifacts/compose/docker-compose.yaml
-            ./artifacts/compose/**/*
-          if-no-files-found: warn
+          if-no-files-found: error
+
