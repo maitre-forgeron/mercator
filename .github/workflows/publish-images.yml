@@ -1,9 +1,15 @@
 name: Publish Images
 
 on:
+  # For master: publish only after CI succeeded (keeps your "only publish verified code" guarantee)
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+
+  # For version tags: run directly on tag push (because workflow_run.head_branch is unreliable/empty for tags)
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -13,8 +19,12 @@ permissions:
 jobs:
   publish:
     if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.head_branch == 'master' || startsWith(github.event.workflow_run.head_branch, 'v'))
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'master')
+      ||
+      (github.event_name == 'push' &&
+       startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
 
     env:
@@ -25,17 +35,38 @@ jobs:
       APPHOST: src/Mercator.AppHost/Mercator.AppHost.csproj
       BOOTSTRAPPER_CSPROJ: src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj
 
-      # publish output folder (single source of truth)
       PUBLISH_OUT: ./artifacts/aspire-publish
-
-      # Vite app folder (matches AddViteApp("web", "../web"))
       WEB_DIR: src/web
 
     steps:
-      - name: Checkout (same commit CI tested)
+      - name: Resolve ref + sha (workflow_run vs tag push)
+        id: ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            echo "ref=" >> "$GITHUB_OUTPUT"                 # checkout by sha
+            echo "ref_name=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+            echo "mode=master" >> "$GITHUB_OUTPUT"
+          else
+            # push to tag: github.sha is the tag commit SHA, github.ref_name is the tag name (e.g. v1.2.3)
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+            echo "ref_name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "mode=tag" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Event: ${{ github.event_name }}"
+          echo "Mode: $(cat $GITHUB_OUTPUT | grep '^mode=' | cut -d= -f2)"
+          echo "RefName: $(cat $GITHUB_OUTPUT | grep '^ref_name=' | cut -d= -f2)"
+          echo "SHA: $(cat $GITHUB_OUTPUT | grep '^sha=' | cut -d= -f2)"
+
+      - name: Checkout (exact commit)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.ref.outputs.sha }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -58,19 +89,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHA="${{ steps.ref.outputs.sha }}"
           SHORT_SHA="${SHA:0:7}"
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          NAME="${{ steps.ref.outputs.ref_name }}"
+          MODE="${{ steps.ref.outputs.mode }}"
 
           PUSH_TAGS="sha-${SHORT_SHA}"
           DEPLOY_TAG="sha-${SHORT_SHA}"
 
-          if [[ "$BRANCH" == "master" ]]; then
+          if [[ "$MODE" == "master" ]]; then
             PUSH_TAGS="${PUSH_TAGS},latest"
           fi
 
-          if [[ "$BRANCH" == v* ]]; then
-            VERSION="${BRANCH#v}"
+          # tag push: NAME is like "v1.2.3"
+          if [[ "$MODE" == "tag" && "$NAME" == v* ]]; then
+            VERSION="${NAME#v}"
             PUSH_TAGS="${PUSH_TAGS},${VERSION}"
             DEPLOY_TAG="${VERSION}"
           fi
@@ -79,7 +112,8 @@ jobs:
           echo "push_tags=${PUSH_TAGS}" >> "$GITHUB_OUTPUT"
           echo "deploy_tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
 
-          echo "Branch: $BRANCH"
+          echo "Mode: $MODE"
+          echo "Name: $NAME"
           echo "Short SHA: $SHORT_SHA"
           echo "Push tags: $PUSH_TAGS"
           echo "Deploy tag: $DEPLOY_TAG"
@@ -137,7 +171,6 @@ jobs:
 
       # ---------------------------
       # Frontend: build local web:<hash> stage image expected by frontend-server.Dockerfile
-      # (Aspire did not generate a web Dockerfile in your output, so we build it ourselves.)
       # ---------------------------
       - name: Build local web stage image required by frontend-server.Dockerfile
         shell: bash
@@ -159,7 +192,6 @@ jobs:
 
           echo "WEB_IMAGENAME expected by YARP Dockerfile: ${WEB_IMAGENAME}"
 
-          # Build Vite output into /app/dist inside an image tagged exactly as Aspire expects
           cat > /tmp/web.stage.Dockerfile <<'EOF'
           FROM node:20-alpine
           WORKDIR /app
@@ -171,7 +203,6 @@ jobs:
 
           echo "Building local web image from ${WEB_DIR} ..."
           docker build -f /tmp/web.stage.Dockerfile -t "${WEB_IMAGENAME}" "${WEB_DIR}"
-
           docker image inspect "${WEB_IMAGENAME}" >/dev/null
           echo "✅ Local web stage image exists: ${WEB_IMAGENAME}"
 
@@ -190,7 +221,6 @@ jobs:
           fi
 
           WEB_IMAGE="$(grep -E '^ARG WEB_IMAGENAME=' "${DOCKERFILE}" | head -n 1 | cut -d= -f2- | tr -d '\r')"
-          echo "Using web image stage: ${WEB_IMAGE}"
           docker image inspect "${WEB_IMAGE}" >/dev/null
 
           FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
@@ -203,8 +233,6 @@ jobs:
             -t "${FRONTEND_FULL_REPO}:${LOCAL_TAG}" \
             "${DOCKER_DIR}"
 
-          echo "Built: ${FRONTEND_FULL_REPO}:${LOCAL_TAG}"
-
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
           for t in "${TAGS[@]}"; do
             REMOTE_IMAGE="${FRONTEND_FULL_REPO}:${t}"
@@ -213,9 +241,6 @@ jobs:
             docker push "${REMOTE_IMAGE}"
           done
 
-      # ---------------------------
-      # Deploy info artifact
-      # ---------------------------
       - name: Write deploy info artifact
         shell: bash
         run: |
@@ -234,7 +259,6 @@ jobs:
           PORT=${PORT}
           EOF
 
-          echo "deploy-info.env:"
           cat ./artifacts/deploy-info.env
 
       - name: Upload deploy info

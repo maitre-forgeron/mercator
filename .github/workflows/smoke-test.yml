@@ -1,3 +1,4 @@
+# smoke-test.yml (fixed)
 name: Smoke Test (Compose)
 
 on:
@@ -11,10 +12,7 @@ permissions:
 
 jobs:
   smoke:
-    # Only run when Aspire Compose succeeded AND the originating branch is master
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'master'
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -49,16 +47,8 @@ jobs:
           fi
 
           COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
-
-          # We will cd into COMPOSE_DIR, so give compose only basenames.
           ENV_BASENAME="$(basename "$ENV_FILE")"
           COMPOSE_BASENAME="$(basename "$COMPOSE_FILE")"
-
-          echo "ENV_FILE=$ENV_FILE"
-          echo "COMPOSE_FILE=$COMPOSE_FILE"
-          echo "COMPOSE_DIR=$COMPOSE_DIR"
-          echo "ENV_BASENAME=$ENV_BASENAME"
-          echo "COMPOSE_BASENAME=$COMPOSE_BASENAME"
 
           echo "compose_dir=$COMPOSE_DIR" >> "$GITHUB_OUTPUT"
           echo "env_file=$ENV_BASENAME" >> "$GITHUB_OUTPUT"
@@ -79,19 +69,48 @@ jobs:
           docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" up -d
           docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" ps
 
-
       - name: Smoke test (curl inside compose network)
         shell: bash
         run: |
           set -euo pipefail
           cd "${{ steps.loc.outputs.compose_dir }}"
 
-          PORT="$(grep -E '^MERCATOR_BOOTSTRAPPER_PORT=' "${{ steps.loc.outputs.env_file }}" | cut -d= -f2 | tr -d '\r' || true)"
-          if [ -z "$PORT" ]; then
-            echo "❌ MERCATOR_BOOTSTRAPPER_PORT not set in env file"
-            exit 1
-          fi
+          # Resolve the *container* port (not the host-mapped port) from rendered compose config.
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" config > /tmp/compose.resolved.yaml
+          CONTAINER_PORT="$(python3 - <<'PY'
+          import sys
+          try:
+              import yaml
+          except Exception:
+              print('8080'); sys.exit(0)
 
+          with open('/tmp/compose.resolved.yaml','r',encoding='utf-8') as f:
+              data = yaml.safe_load(f)
+
+          svc = (data.get('services') or {}).get('mercator-bootstrapper') or {}
+          ports = svc.get('ports') or []
+
+          def extract_container_port(p):
+              # "host:container", "ip:host:container", "host:container/tcp", or long syntax dict with target
+              if isinstance(p, dict):
+                  target = p.get('target')
+                  return str(target) if target else None
+              if not isinstance(p, str):
+                  return None
+              last = p.split(':')[-1].split('/')[0].strip()
+              return last if last.isdigit() else None
+
+          for p in ports:
+              cp = extract_container_port(p)
+              if cp:
+                  print(cp)
+                  sys.exit(0)
+
+          print('8080')
+          PY
+                    )"
+
+          # Determine compose network name (best-effort). If not found, fallback to "<compose_dir>_aspire".
           NETWORK="$(docker network ls --format '{{.Name}}' | grep -E '(^|_)aspire$' | head -n 1 || true)"
           if [ -z "$NETWORK" ]; then
             PROJECT="$(basename "$(pwd)")"
@@ -99,52 +118,48 @@ jobs:
           fi
 
           echo "Network: $NETWORK"
-          echo "Port: $PORT"
-          echo "Probing http://mercator-bootstrapper:${PORT}/health"
+          echo "Container port: $CONTAINER_PORT"
+          echo "Probing (inside network) http://mercator-bootstrapper:${CONTAINER_PORT}/health"
 
-          
-          for i in {1..10}; do
-          backend_ok=0
-          frontend_ok=0
-          proxy_ok=0
-        
-          # Backend: consider it "up" if it returns ANY http code (not 000)
-          backend_code="$(
-            docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
-              -sS -o /dev/null -w '%{http_code}' "http://mercator-bootstrapper:${PORT}/health" \
-            || echo 000
-          )"
-          if [[ "${backend_code}" != "000" ]]; then backend_ok=1; fi
-        
-          # Frontend static: must be 200
-          if docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
-              -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/" | grep -q '^200$'; then
-            frontend_ok=1
-          fi
-        
-          # Proxy: call through YARP. Treat 404/401/403 as OK (means routing works).
-          proxy_code="$(
-            docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
-              -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/api/health" \
-            || echo 000
-          )"
-          if [[ "${proxy_code}" != "000" && "${proxy_code}" != "502" && "${proxy_code}" != "503" ]]; then
-            proxy_ok=1
-          fi
-        
-          echo "Waiting for services... (${i}/45) backend=${backend_ok}(code=${backend_code}) frontend=${frontend_ok} proxyApi=${proxy_ok}(code=${proxy_code})"
-        
-          if [[ "${backend_ok}" == "1" && "${frontend_ok}" == "1" && "${proxy_ok}" == "1" ]]; then
-            echo "✅ Smoke test passed"
-            exit 0
-          fi
-        
-          sleep 2
+          for i in {1..45}; do
+            backend_ok=0
+            frontend_ok=0
+            proxy_ok=0
+
+            backend_code="$(
+              docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+                -sS -o /dev/null -w '%{http_code}' "http://mercator-bootstrapper:${CONTAINER_PORT}/health" \
+              || echo 000
+            )"
+            if [[ "${backend_code}" != "000" ]]; then backend_ok=1; fi
+
+            if docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+                -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/" | grep -q '^200$'; then
+              frontend_ok=1
+            fi
+
+            proxy_code="$(
+              docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+                -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/api/health" \
+              || echo 000
+            )"
+            if [[ "${proxy_code}" != "000" && "${proxy_code}" != "502" && "${proxy_code}" != "503" ]]; then
+              proxy_ok=1
+            fi
+
+            echo "Waiting... (${i}/45) backend=${backend_ok}(code=${backend_code}) frontend=${frontend_ok} proxyApi=${proxy_ok}(code=${proxy_code})"
+
+            if [[ "${backend_ok}" == "1" && "${frontend_ok}" == "1" && "${proxy_ok}" == "1" ]]; then
+              echo "✅ Smoke test passed"
+              exit 0
+            fi
+
+            sleep 2
           done
 
           echo "❌ Smoke test failed (timeout)"
           echo "--- docker compose ps ---"
-          docker compose -f "${{ steps.loc.outputs.compose_file }}" ps || true
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" ps || true
           echo "--- docker compose logs (last 200 lines) ---"
           docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" logs --no-color --tail=200 || true
           exit 1
@@ -155,20 +170,5 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ steps.loc.outputs.compose_dir }}"
-          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" logs --no-color > "${{ github.workspace }}/compose-logs.txt" || true
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-test-logs
-          path: ./compose-logs.txt
-          if-no-files-found: warn
-
-      - name: Tear down
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${{ steps.loc.outputs.compose_dir }}"
-          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" down -v --remove-orphans || true
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" ps || true
+          docker compose --env-file "${{ steps.loc.outputs.env_file }}" -f "${{ steps.loc.outputs.compose_file }}" logs --no-color --tail=500 || true
