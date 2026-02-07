@@ -121,9 +121,7 @@ jobs:
           OUT="./artifacts/aspire-publish"
           mkdir -p "$OUT"
       
-          # If you have aspire installed as a dotnet tool, use `aspire publish`
-          # Otherwise: `dotnet aspire publish`
-          dotnet aspire publish "${APPHOST}" -o "$OUT"
+          aspire publish "${APPHOST}" -o "$OUT"
       
           echo "Publish output tree:"
           find "$OUT" -maxdepth 4 -type f -print
