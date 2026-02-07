@@ -1,3 +1,4 @@
+using Aspire.Hosting.Yarp.Transforms;
 using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -19,6 +20,19 @@ var mercator = builder.AddProject<Projects.Mercator_Bootstrapper>("mercator-boot
 var web = builder.AddViteApp("web", "../web")
     .WithReference(mercator)
     .WithEnvironment("API_PROXY_TARGET", mercator.GetEndpoint("http"));
+
+if (builder.ExecutionContext.IsPublishMode)
+{
+    builder.AddYarp("frontend-server")
+           .WithConfiguration(c =>
+           {
+               // Always proxy /api requests to backend
+               c.AddRoute("api/{**catch-all}", mercator)
+                .WithTransformPathRemovePrefix("/api");
+           })
+           .WithExternalHttpEndpoints()
+           .PublishWithStaticFiles(web);
+}
 
 if (builder.Environment.IsDevelopment()) 
 {
