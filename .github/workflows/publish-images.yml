@@ -21,6 +21,8 @@ jobs:
       REGISTRY: ghcr.io
       OWNER: ${{ github.repository_owner }}
       IMAGE_REPO: mercator-bootstrapper
+      FRONTEND_IMAGE_REPO: mercator-frontend-server
+      APPHOST: src/Mercator.AppHost/Mercator.AppHost.csproj
       BOOTSTRAPPER_CSPROJ: src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj
 
     steps:
@@ -34,6 +36,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
           include-prerelease: true
+
+      - name: Install Aspire CLI
+        run: dotnet tool install --global Aspire.Cli
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -80,7 +85,7 @@ jobs:
           set -euo pipefail
 
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
-          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
 
           dotnet publish "${{ env.BOOTSTRAPPER_CSPROJ }}" -c Release \
             /t:PublishContainer \
@@ -95,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
           SOURCE_IMAGE="${FULL_REPO}:${LOCAL_TAG}"
 
@@ -108,20 +113,71 @@ jobs:
             docker push "${REMOTE_IMAGE}"
           done
 
+
+      - name: Build + push frontend-server image (YARP + static files)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Generate publish artifacts to get frontend-server.Dockerfile and the local "web" image.
+          rm -rf ./artifacts/aspire-publish
+          mkdir -p ./artifacts/aspire-publish
+
+          aspire publish "${{ env.APPHOST }}" -o ./artifacts/aspire-publish
+
+          DOCKERFILE="$(find ./artifacts/aspire-publish -type f -name "frontend-server.Dockerfile" | head -n 1 || true)"
+          if [ -z "$DOCKERFILE" ]; then
+            echo "❌ Could not find frontend-server.Dockerfile in Aspire publish output"
+            find ./artifacts/aspire-publish -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+
+          # frontend-server.Dockerfile contains the default WEB_IMAGENAME we need to copy /app/dist from.
+          WEB_IMAGE="$(grep -E '^ARG WEB_IMAGENAME=' "$DOCKERFILE" | head -n 1 | cut -d= -f2- | tr -d '\r' || true)"
+          if [ -z "$WEB_IMAGE" ]; then
+            echo "❌ Could not extract WEB_IMAGENAME from $DOCKERFILE"
+            head -n 20 "$DOCKERFILE" || true
+            exit 1
+          fi
+
+          echo "Using web image stage: $WEB_IMAGE"
+          docker image inspect "$WEB_IMAGE" >/dev/null
+
+          FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
+          LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
+
+          DOCKER_DIR="$(dirname "$DOCKERFILE")"
+
+          # Build local image
+          docker build             -f "$DOCKERFILE"             --build-arg WEB_IMAGENAME="$WEB_IMAGE"             -t "${FRONTEND_FULL_REPO}:${LOCAL_TAG}"             "$DOCKER_DIR"
+
+          echo "Built: ${FRONTEND_FULL_REPO}:${LOCAL_TAG}"
+
+          # Tag + push
+          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
+          for t in "${TAGS[@]}"; do
+            REMOTE_IMAGE="${FRONTEND_FULL_REPO}:${t}"
+            echo "Pushing ${REMOTE_IMAGE}"
+            docker tag "${FRONTEND_FULL_REPO}:${LOCAL_TAG}" "${REMOTE_IMAGE}"
+            docker push "${REMOTE_IMAGE}"
+          done
+
       - name: Write deploy info artifact
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ./artifacts
 
-          FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
+          FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
           DEPLOY_TAG="${{ steps.meta.outputs.deploy_tag }}"
 
           # Put whatever else you want Aspire to consume here (port, etc.)
           PORT="8080"
 
           cat > ./artifacts/deploy-info.env <<EOF
-          FULL_REPO=${FULL_REPO}
+          BOOTSTRAPPER_FULL_REPO=${BOOTSTRAPPER_FULL_REPO}
+          FRONTEND_FULL_REPO=${FRONTEND_FULL_REPO}
           DEPLOY_TAG=${DEPLOY_TAG}
           PORT=${PORT}
           EOF
