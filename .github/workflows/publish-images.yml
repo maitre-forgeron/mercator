@@ -42,13 +42,15 @@ jobs:
       - name: Resolve ref + sha (workflow_run vs tag push)
         id: ref
         shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
 
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
             echo "ref=" >> "$GITHUB_OUTPUT"                 # checkout by sha
-            echo "ref_name=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+            echo "ref_name=$HEAD_BRANCH" >> "$GITHUB_OUTPUT"
             echo "mode=master" >> "$GITHUB_OUTPUT"
           else
             # push to tag: github.sha is the tag commit SHA, github.ref_name is the tag name (e.g. v1.2.3)
