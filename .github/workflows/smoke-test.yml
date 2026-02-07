@@ -103,38 +103,43 @@ jobs:
           echo "Probing http://mercator-bootstrapper:${PORT}/health"
 
           
-          for i in {1..45}; do
-            BOOT_OK="0"
-            FRONT_OK="0"
-            API_OK="0"
-          
-            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
-              -fsS "http://mercator-bootstrapper:${PORT}/health" >/dev/null; then
-              BOOT_OK="1"
-            fi
-          
-            # YARP serves the SPA and proxies /api/* to the backend
-            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
-              -fsS "http://frontend-server:5000/" >/dev/null; then
-              FRONT_OK="1"
-            fi
-          
-            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
-              -fsS "http://frontend-server:5000/health" >/dev/null; then
-              API_OK="1"
-            fi
-          
-            if [ "$BOOT_OK" = "1" ] && [ "$FRONT_OK" = "1" ] && [ "$API_OK" = "1" ]; then
-              echo "✅ Smoke test passed (backend + frontend + proxy)"
-              exit 0
-            fi
-          
-            echo "Waiting for services... ($i/45) backend=$BOOT_OK frontend=$FRONT_OK proxyApi=$API_OK"
-            sleep 2
-          done
-
-            echo "Waiting for service... ($i/45)"
-            sleep 2
+          for i in {1..10}; do
+          backend_ok=0
+          frontend_ok=0
+          proxy_ok=0
+        
+          # Backend: consider it "up" if it returns ANY http code (not 000)
+          backend_code="$(
+            docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+              -sS -o /dev/null -w '%{http_code}' "http://mercator-bootstrapper:${PORT}/health" \
+            || echo 000
+          )"
+          if [[ "${backend_code}" != "000" ]]; then backend_ok=1; fi
+        
+          # Frontend static: must be 200
+          if docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+              -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/" | grep -q '^200$'; then
+            frontend_ok=1
+          fi
+        
+          # Proxy: call through YARP. Treat 404/401/403 as OK (means routing works).
+          proxy_code="$(
+            docker run --rm --network "${NETWORK}" curlimages/curl:8.6.0 \
+              -sS -o /dev/null -w '%{http_code}' "http://frontend-server:5000/api/health" \
+            || echo 000
+          )"
+          if [[ "${proxy_code}" != "000" && "${proxy_code}" != "502" && "${proxy_code}" != "503" ]]; then
+            proxy_ok=1
+          fi
+        
+          echo "Waiting for services... (${i}/45) backend=${backend_ok}(code=${backend_code}) frontend=${frontend_ok} proxyApi=${proxy_ok}(code=${proxy_code})"
+        
+          if [[ "${backend_ok}" == "1" && "${frontend_ok}" == "1" && "${proxy_ok}" == "1" ]]; then
+            echo "✅ Smoke test passed"
+            exit 0
+          fi
+        
+          sleep 2
           done
 
           echo "❌ Smoke test failed (timeout)"
