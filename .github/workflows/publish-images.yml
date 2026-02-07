@@ -89,10 +89,10 @@ jobs:
 
           dotnet publish "${{ env.BOOTSTRAPPER_CSPROJ }}" -c Release \
             /t:PublishContainer \
-            -p:ContainerRepository="$FULL_REPO" \
+            -p:ContainerRepository="$BOOTSTRAPPER_FULL_REPO" \
             -p:ContainerImageTag="$LOCAL_TAG"
 
-          echo "Built: $FULL_REPO:$LOCAL_TAG"
+          echo "Built: $BOOTSTRAPPER_FULL_REPO:$LOCAL_TAG"
           docker images | head -n 30
 
       - name: Tag + push to GHCR
@@ -102,12 +102,12 @@ jobs:
 
           BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
-          SOURCE_IMAGE="${FULL_REPO}:${LOCAL_TAG}"
+          SOURCE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${LOCAL_TAG}"
 
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
 
           for t in "${TAGS[@]}"; do
-            REMOTE_IMAGE="${FULL_REPO}:${t}"
+            REMOTE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${t}"
             echo "Pushing ${REMOTE_IMAGE}"
             docker tag "${SOURCE_IMAGE}" "${REMOTE_IMAGE}"
             docker push "${REMOTE_IMAGE}"
