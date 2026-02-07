@@ -3,23 +3,18 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  const isDev = mode === "development";
 
-  const apiTarget =
-    process.env.API_PROXY_TARGET || env.API_PROXY_TARGET;
+  const apiTarget = process.env.API_PROXY_TARGET || env.API_PROXY_TARGET;
 
-  if (!apiTarget) {
+  if (isDev && !apiTarget) {
     throw new Error("API_PROXY_TARGET is not set");
   }
 
   console.log("Vite API proxy target =", apiTarget);
 
-  return {
-    plugins: [react()],
-    build: {
-      outDir: "dist",
-      emptyOutDir: true,
-    },
-    server: {
+  const serverOptions = isDev ? 
+  {
       proxy: {
       "/api": {
         target: apiTarget,
@@ -32,7 +27,15 @@ export default defineConfig(({ mode }) => {
         secure: false,
       }
     }
+  } : undefined;
+
+  return {
+    plugins: [react()],
+    build: {
+      outDir: "dist",
+      emptyOutDir: true,
     },
+    server: serverOptions,
   };
 });
 
