@@ -102,12 +102,36 @@ jobs:
           echo "Port: $PORT"
           echo "Probing http://mercator-bootstrapper:${PORT}/health"
 
+          
           for i in {1..45}; do
+            BOOT_OK="0"
+            FRONT_OK="0"
+            API_OK="0"
+          
             if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
               -fsS "http://mercator-bootstrapper:${PORT}/health" >/dev/null; then
-              echo "✅ Smoke test passed"
+              BOOT_OK="1"
+            fi
+          
+            # YARP serves the SPA and proxies /api/* to the backend
+            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
+              -fsS "http://frontend-server:5000/" >/dev/null; then
+              FRONT_OK="1"
+            fi
+          
+            if docker run --rm --network "$NETWORK" curlimages/curl:8.6.0 \
+              -fsS "http://frontend-server:5000/health" >/dev/null; then
+              API_OK="1"
+            fi
+          
+            if [ "$BOOT_OK" = "1" ] && [ "$FRONT_OK" = "1" ] && [ "$API_OK" = "1" ]; then
+              echo "✅ Smoke test passed (backend + frontend + proxy)"
               exit 0
             fi
+          
+            echo "Waiting for services... ($i/45) backend=$BOOT_OK frontend=$FRONT_OK proxyApi=$API_OK"
+            sleep 2
+          done
 
             echo "Waiting for service... ($i/45)"
             sleep 2
