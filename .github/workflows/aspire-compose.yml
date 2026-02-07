@@ -61,13 +61,15 @@ jobs:
           source ./artifacts/deploy-info/deploy-info.env
 
           echo "Using:"
-          echo "  FULL_REPO=$FULL_REPO"
+          echo "  BOOTSTRAPPER_FULL_REPO=$BOOTSTRAPPER_FULL_REPO"
+          echo "  FRONTEND_FULL_REPO=$FRONTEND_FULL_REPO"
           echo "  DEPLOY_TAG=$DEPLOY_TAG"
           echo "  PORT=$PORT"
 
           cd ./artifacts/compose
 
-          IMAGE="${FULL_REPO}:${DEPLOY_TAG}"
+          BOOT_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${DEPLOY_TAG}"
+          FRONT_IMAGE="${FRONTEND_FULL_REPO}:${DEPLOY_TAG}"
           PG_PASSWORD="ci-password"
 
           upsert () {
@@ -79,7 +81,8 @@ jobs:
             fi
           }
 
-          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "${IMAGE}"
+          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "${BOOT_IMAGE}"
+          upsert "FRONTEND_SERVER_IMAGE" "${FRONT_IMAGE}"
           upsert "MERCATOR_BOOTSTRAPPER_PORT" "${PORT}"
           upsert "PG_PASSWORD" "${PG_PASSWORD}"
 
