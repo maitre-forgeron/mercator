@@ -25,6 +25,12 @@ jobs:
       APPHOST: src/Mercator.AppHost/Mercator.AppHost.csproj
       BOOTSTRAPPER_CSPROJ: src/Mercator.Bootstrapper/Mercator.Bootstrapper.csproj
 
+      # publish output folder (single source of truth)
+      PUBLISH_OUT: ./artifacts/aspire-publish
+
+      # Vite app folder (matches AddViteApp("web", "../web"))
+      WEB_DIR: ./web
+
     steps:
       - name: Checkout (same commit CI tested)
         uses: actions/checkout@v4
@@ -56,7 +62,6 @@ jobs:
           SHORT_SHA="${SHA:0:7}"
           BRANCH="${{ github.event.workflow_run.head_branch }}"
 
-          # Push tags
           PUSH_TAGS="sha-${SHORT_SHA}"
           DEPLOY_TAG="sha-${SHORT_SHA}"
 
@@ -79,7 +84,10 @@ jobs:
           echo "Push tags: $PUSH_TAGS"
           echo "Deploy tag: $DEPLOY_TAG"
 
-      - name: Build local image via .NET (no Dockerfile)
+      # ---------------------------
+      # Backend (bootstrapper) image
+      # ---------------------------
+      - name: Build local bootstrapper image via .NET (PublishContainer)
         shell: bash
         run: |
           set -euo pipefail
@@ -93,9 +101,8 @@ jobs:
             -p:ContainerImageTag="$LOCAL_TAG"
 
           echo "Built: $BOOTSTRAPPER_FULL_REPO:$LOCAL_TAG"
-          docker images | head -n 30
 
-      - name: Tag + push to GHCR
+      - name: Tag + push bootstrapper to GHCR
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +112,6 @@ jobs:
           SOURCE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${LOCAL_TAG}"
 
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
-
           for t in "${TAGS[@]}"; do
             REMOTE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${t}"
             echo "Pushing ${REMOTE_IMAGE}"
@@ -113,91 +119,92 @@ jobs:
             docker push "${REMOTE_IMAGE}"
           done
 
+      # ---------------------------
+      # Aspire publish (generates frontend-server.Dockerfile)
+      # ---------------------------
       - name: Aspire publish (generate compose + Dockerfiles)
         shell: bash
         run: |
           set -euo pipefail
-      
-          OUT="./artifacts/aspire-publish"
-          mkdir -p "$OUT"
-      
-          aspire publish "${APPHOST}" -o "$OUT"
-      
-          echo "Publish output tree:"
-          find "$OUT" -maxdepth 4 -type f -print
 
+          rm -rf "${PUBLISH_OUT}"
+          mkdir -p "${PUBLISH_OUT}"
 
-      - name: Build local web image required by frontend-server.Dockerfile
+          aspire publish "${APPHOST}" -o "${PUBLISH_OUT}"
+
+          echo "Publish output files:"
+          find "${PUBLISH_OUT}" -maxdepth 5 -type f -print
+
+      # ---------------------------
+      # Frontend: build local web:<hash> stage image expected by frontend-server.Dockerfile
+      # (Aspire did not generate a web Dockerfile in your output, so we build it ourselves.)
+      # ---------------------------
+      - name: Build local web stage image required by frontend-server.Dockerfile
         shell: bash
         run: |
           set -euo pipefail
-      
-          OUT="./artifacts/aspire-publish"
-      
-          FRONTEND_DOCKERFILE="$(find "$OUT" -maxdepth 5 -name 'frontend-server.Dockerfile' -print -quit)"
-          if [[ -z "${FRONTEND_DOCKERFILE}" ]]; then
-            echo "frontend-server.Dockerfile not found under $OUT"
-            find "$OUT" -maxdepth 5 -type f -name '*.Dockerfile' -print || true
-            exit 1
-          fi
-      
-          WEB_IMAGENAME="$(grep -E '^ARG WEB_IMAGENAME=' "$FRONTEND_DOCKERFILE" | head -n 1 | cut -d= -f2)"
-          echo "WEB_IMAGENAME from frontend-server.Dockerfile: $WEB_IMAGENAME"
-      
-          # Find a Dockerfile that looks like the Vite build image (contains "FROM node")
-          WEB_DOCKERFILE="$(grep -RIl --include='*.Dockerfile' '^FROM node' "$OUT" | head -n 1 || true)"
-          if [[ -z "${WEB_DOCKERFILE}" ]]; then
-            echo "Could not find a web Dockerfile (no Dockerfile with 'FROM node' under $OUT). Dockerfiles found:"
-            find "$OUT" -maxdepth 5 -type f -name '*.Dockerfile' -print || true
-            exit 1
-          fi
-      
-          echo "Building local web image from: $WEB_DOCKERFILE"
-          docker build -f "$WEB_DOCKERFILE" -t "$WEB_IMAGENAME" "$(dirname "$WEB_DOCKERFILE")"
-      
-          echo "Local web image now exists:"
-          docker images "$WEB_IMAGENAME" || true
 
+          FRONTEND_DOCKERFILE="$(find "${PUBLISH_OUT}" -maxdepth 5 -name 'frontend-server.Dockerfile' -print -quit)"
+          if [[ -z "${FRONTEND_DOCKERFILE}" ]]; then
+            echo "❌ frontend-server.Dockerfile not found under ${PUBLISH_OUT}"
+            exit 1
+          fi
+
+          WEB_IMAGENAME="$(grep -E '^ARG WEB_IMAGENAME=' "${FRONTEND_DOCKERFILE}" | head -n 1 | cut -d= -f2- | tr -d '\r')"
+          if [[ -z "${WEB_IMAGENAME}" ]]; then
+            echo "❌ Could not extract WEB_IMAGENAME from ${FRONTEND_DOCKERFILE}"
+            head -n 20 "${FRONTEND_DOCKERFILE}" || true
+            exit 1
+          fi
+
+          echo "WEB_IMAGENAME expected by YARP Dockerfile: ${WEB_IMAGENAME}"
+
+          # Build Vite output into /app/dist inside an image tagged exactly as Aspire expects
+          cat > /tmp/web.stage.Dockerfile <<'EOF'
+          FROM node:20-alpine
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm ci
+          COPY . .
+          RUN npm run build
+          EOF
+
+          echo "Building local web image from ${WEB_DIR} ..."
+          docker build -f /tmp/web.stage.Dockerfile -t "${WEB_IMAGENAME}" "${WEB_DIR}"
+
+          docker image inspect "${WEB_IMAGENAME}" >/dev/null
+          echo "✅ Local web stage image exists: ${WEB_IMAGENAME}"
+
+      # ---------------------------
+      # Frontend-server: build & push YARP image that contains static files
+      # ---------------------------
       - name: Build + push frontend-server image (YARP + static files)
         shell: bash
         run: |
           set -euo pipefail
 
-          # Generate publish artifacts to get frontend-server.Dockerfile and the local "web" image.
-          rm -rf ./artifacts/aspire-publish
-          mkdir -p ./artifacts/aspire-publish
-
-          aspire publish "${{ env.APPHOST }}" -o ./artifacts/aspire-publish
-
-          DOCKERFILE="$(find ./artifacts/aspire-publish -type f -name "frontend-server.Dockerfile" | head -n 1 || true)"
-          if [ -z "$DOCKERFILE" ]; then
-            echo "❌ Could not find frontend-server.Dockerfile in Aspire publish output"
-            find ./artifacts/aspire-publish -maxdepth 3 -type f -print || true
+          DOCKERFILE="$(find "${PUBLISH_OUT}" -maxdepth 5 -name 'frontend-server.Dockerfile' -print -quit)"
+          if [[ -z "${DOCKERFILE}" ]]; then
+            echo "❌ Could not find frontend-server.Dockerfile in ${PUBLISH_OUT}"
             exit 1
           fi
 
-          # frontend-server.Dockerfile contains the default WEB_IMAGENAME we need to copy /app/dist from.
-          WEB_IMAGE="$(grep -E '^ARG WEB_IMAGENAME=' "$DOCKERFILE" | head -n 1 | cut -d= -f2- | tr -d '\r' || true)"
-          if [ -z "$WEB_IMAGE" ]; then
-            echo "❌ Could not extract WEB_IMAGENAME from $DOCKERFILE"
-            head -n 20 "$DOCKERFILE" || true
-            exit 1
-          fi
-
-          echo "Using web image stage: $WEB_IMAGE"
-          docker image inspect "$WEB_IMAGE" >/dev/null
+          WEB_IMAGE="$(grep -E '^ARG WEB_IMAGENAME=' "${DOCKERFILE}" | head -n 1 | cut -d= -f2- | tr -d '\r')"
+          echo "Using web image stage: ${WEB_IMAGE}"
+          docker image inspect "${WEB_IMAGE}" >/dev/null
 
           FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
+          DOCKER_DIR="$(dirname "${DOCKERFILE}")"
 
-          DOCKER_DIR="$(dirname "$DOCKERFILE")"
-
-          # Build local image
-          docker build             -f "$DOCKERFILE"             --build-arg WEB_IMAGENAME="$WEB_IMAGE"             -t "${FRONTEND_FULL_REPO}:${LOCAL_TAG}"             "$DOCKER_DIR"
+          docker build \
+            -f "${DOCKERFILE}" \
+            --build-arg WEB_IMAGENAME="${WEB_IMAGE}" \
+            -t "${FRONTEND_FULL_REPO}:${LOCAL_TAG}" \
+            "${DOCKER_DIR}"
 
           echo "Built: ${FRONTEND_FULL_REPO}:${LOCAL_TAG}"
 
-          # Tag + push
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
           for t in "${TAGS[@]}"; do
             REMOTE_IMAGE="${FRONTEND_FULL_REPO}:${t}"
@@ -206,6 +213,9 @@ jobs:
             docker push "${REMOTE_IMAGE}"
           done
 
+      # ---------------------------
+      # Deploy info artifact
+      # ---------------------------
       - name: Write deploy info artifact
         shell: bash
         run: |
@@ -215,8 +225,6 @@ jobs:
           BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
           FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
           DEPLOY_TAG="${{ steps.meta.outputs.deploy_tag }}"
-
-          # Put whatever else you want Aspire to consume here (port, etc.)
           PORT="8080"
 
           cat > ./artifacts/deploy-info.env <<EOF
