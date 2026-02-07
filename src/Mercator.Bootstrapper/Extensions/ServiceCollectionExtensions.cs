@@ -119,12 +119,12 @@ public static class ApplicationBuilderExtensions
 {
     public static IApplicationBuilder MapMercatorModules(this WebApplication app)
     {
-        app.MapOrdersModule(app.MapGroup("/api/orders").WithTags("Orders"));
-        app.MapPaymentsModule(app.MapGroup("/api/payments").WithTags("Payments"));
-        app.MapNotificationsModule(app.MapGroup("/api/notifications").WithTags("Notifications"));
-        app.MapLogisticsModule(app.MapGroup("/api/logistics").WithTags("Logistics"));
-        app.MapCatalogModule(app.MapGroup("/api/catalog").WithTags("Catalog"));
-        app.MapIdentityModule(app.MapGroup("/api/identity").WithTags("Identity"));
+        app.MapOrdersModule(app.MapGroup("/orders").WithTags("Orders"));
+        app.MapPaymentsModule(app.MapGroup("/payments").WithTags("Payments"));
+        app.MapNotificationsModule(app.MapGroup("/notifications").WithTags("Notifications"));
+        app.MapLogisticsModule(app.MapGroup("/logistics").WithTags("Logistics"));
+        app.MapCatalogModule(app.MapGroup("/catalog").WithTags("Catalog"));
+        app.MapIdentityModule(app.MapGroup("/identity").WithTags("Identity"));
 
         return app;
     }
