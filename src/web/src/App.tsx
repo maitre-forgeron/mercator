@@ -1,10 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
+import { getSomething } from './api/client';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    getSomething()
+      .then((x) => {
+        console.log("API data:", x);
+        setData(x);
+      })
+      .catch(console.error);
+  }, []);
 
   return (
     <>
@@ -18,9 +28,7 @@ function App() {
       </div>
       <h1>Vite + React</h1>
       <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
+        Health check call returns: <pre>{JSON.stringify(data, null, 2)}</pre>
         <p>
           Edit <code>src/App.tsx</code> and save to test HMR
         </p>

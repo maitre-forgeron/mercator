@@ -1,4 +1,3 @@
-using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -16,6 +15,10 @@ var mercator = builder.AddProject<Projects.Mercator_Bootstrapper>("mercator-boot
     .WithHttpHealthCheck("/health")
     .WaitFor(db)
     .WithReference(db);
+
+var web = builder.AddViteApp("web", "../web")
+    .WithReference(mercator)
+    .WithEnvironment("API_PROXY_TARGET", mercator.GetEndpoint("http"));
 
 if (builder.Environment.IsDevelopment()) 
 {

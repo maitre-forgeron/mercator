@@ -11,6 +11,14 @@ builder.Services.AddMercatorModules(builder.Configuration);
 builder.Services.AddGlobalConfigurations(builder.Configuration);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
@@ -25,9 +33,14 @@ if (app.Environment.IsDevelopment())
     await initialiser.InitialiseAsync();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseMercatorAuth();
+
+app.UseCors();
 
 app.MapMercatorModules();
 
