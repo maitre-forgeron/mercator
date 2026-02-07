@@ -113,6 +113,36 @@ jobs:
             docker push "${REMOTE_IMAGE}"
           done
 
+      - name: Build local web image required by frontend-server.Dockerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          OUT="./artifacts/aspire-publish"   # <-- whatever folder you used for aspire publish output
+      
+          FRONTEND_DOCKERFILE="$(find "$OUT" -maxdepth 3 -name 'frontend-server.Dockerfile' -print -quit)"
+          if [[ -z "${FRONTEND_DOCKERFILE}" ]]; then
+            echo "frontend-server.Dockerfile not found under $OUT"
+            find "$OUT" -maxdepth 3 -type f -name '*.Dockerfile' -print || true
+            exit 1
+          fi
+      
+          WEB_IMAGENAME="$(grep -E '^ARG WEB_IMAGENAME=' "$FRONTEND_DOCKERFILE" | head -n 1 | cut -d= -f2)"
+          echo "WEB_IMAGENAME from frontend-server.Dockerfile: $WEB_IMAGENAME"
+      
+          # Find the generated web Dockerfile (Aspire generates one for the Vite app)
+          WEB_DOCKERFILE="$(find "$OUT" -maxdepth 3 -name 'web*.Dockerfile' -print -quit)"
+          if [[ -z "${WEB_DOCKERFILE}" ]]; then
+            echo "No web*.Dockerfile found under $OUT (list Dockerfiles):"
+            find "$OUT" -maxdepth 3 -type f -name '*.Dockerfile' -print || true
+            exit 1
+          fi
+      
+          echo "Building local web image from: $WEB_DOCKERFILE"
+          docker build -f "$WEB_DOCKERFILE" -t "$WEB_IMAGENAME" "$(dirname "$WEB_DOCKERFILE")"
+      
+          echo "Local web image now exists:"
+          docker images "$WEB_IMAGENAME" || true
 
       - name: Build + push frontend-server image (YARP + static files)
         shell: bash
