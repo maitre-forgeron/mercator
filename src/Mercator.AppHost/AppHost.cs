@@ -1,3 +1,4 @@
+using Aspire.Hosting.Yarp;
 using Aspire.Hosting.Yarp.Transforms;
 using Microsoft.Extensions.Hosting;
 
@@ -26,6 +27,8 @@ if (builder.ExecutionContext.IsPublishMode)
     builder.AddYarp("frontend-server")
            .WithConfiguration(c =>
            {
+               c.AddRoute("health", mercator)
+              .WithTransformPathPrefix("/health");
                // Always proxy /api requests to backend
                c.AddRoute("api/{**catch-all}", mercator)
                 .WithTransformPathRemovePrefix("/api");
