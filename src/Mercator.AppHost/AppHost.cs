@@ -28,7 +28,8 @@ if (builder.ExecutionContext.IsPublishMode)
            .WithConfiguration(c =>
            {
                c.AddRoute("health", mercator)
-              .WithTransformPathPrefix("/health");
+                .WithMatchPath("/health")
+                .WithTransformPathSet("/health");
                // Always proxy /api requests to backend
                c.AddRoute("api/{**catch-all}", mercator)
                 .WithTransformPathRemovePrefix("/api");
