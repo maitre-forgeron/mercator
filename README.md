@@ -1,245 +1,245 @@
-# Mercator – Local Development Guide
+# Mercator -- Local Development Guide
 
-This repository contains **Mercator**, a **modular monolith** built with **.NET 10** and orchestrated locally using **.NET Aspire**.
+This repository contains **Mercator**, a **modular monolith** built with
+**.NET 10** and orchestrated locally using **.NET Aspire**.
 
 The goal of this setup is simple:
 
-> **One command → fully working local environment** (API + database + observability).
+> **One command → fully working local environment**\
+> *(API + database + frontend + observability)*
 
 This guide explains how to run the project on **Windows** and **macOS**.
 
----
+------------------------------------------------------------------------
 
 ## What Aspire Does for This Project
 
 Aspire acts as the *local orchestrator* for Mercator:
 
-- Starts the backend API
-- Starts PostgreSQL
-- Wires connection strings automatically
-- Provides a local dashboard (logs, traces, health)
+-   Starts the backend API
+-   Starts PostgreSQL
+-   Starts the React frontend (Vite)
+-   Wires connection strings automatically
+-   Wires frontend → backend networking
+-   Provides a local dashboard (logs, traces, health)
 
-You do **not** need Docker Compose files or manual env configuration to get started.
+You do **not** need Docker Compose files or manual env configuration to
+get started.
 
----
+------------------------------------------------------------------------
+
+## Project Structure (Simplified)
+
+    mercator/
+    ├─ src/
+    │  ├─ Mercator.AppHost        # Aspire AppHost (entry point)
+    │  ├─ Mercator.Bootstrapper   # Backend API
+    │  └─ web/                    # React + Vite frontend
+
+------------------------------------------------------------------------
 
 ## Prerequisites (Both Windows & macOS)
 
-Make sure the following tools are installed:
-
 ### Required
-- **.NET SDK 10.0**
-- **.NET Aspire workload**
 
-### Required
-- Docker Desktop (required for PostgreSQL)
+-   **.NET SDK 10.0**
+-   **.NET Aspire workload**
+-   **Node.js (LTS, v24.13.0)**
+-   **Docker Desktop** (required for PostgreSQL)
 
 ### Recommended
-- A modern IDE (Visual Studio / Rider / VS Code)
 
----
+-   A modern IDE (Visual Studio / Rider / VS Code)
+
+------------------------------------------------------------------------
 
 ## Installing Prerequisites
 
 ### 1. Install .NET 10 SDK
 
-Download from:
+Download from:\
 https://dotnet.microsoft.com/download
 
-Verify installation (should print **10.x**):
+Verify installation:
 
-```bash
+``` bash
 dotnet --version
 ```
 
----
+------------------------------------------------------------------------
 
 ### 2. Install .NET Aspire Workload
 
-Run once on your machine:
-
-```bash
+``` bash
 dotnet workload install aspire
 ```
 
 Verify:
 
-```bash
+``` bash
 dotnet workload list
 ```
 
-You should see `aspire` in the list.
+------------------------------------------------------------------------
 
----
+### 3. Install Node.js
 
-## Running Mercator (Windows & macOS)
+Download Node.js LTS from:\
+https://nodejs.org
+
+Verify:
+
+``` bash
+node --version
+npm --version
+```
+
+------------------------------------------------------------------------
+
+## Running Mercator
 
 ### 0. Start Docker
 
-Make sure Docker is running **before** you start the AppHost.
+Ensure Docker Desktop is running.
 
-- **Windows:** Start **Docker Desktop** and wait until it shows “Running”.
-- **macOS:** Start **Docker Desktop** and wait until it shows “Running”.
+Verify:
 
-Verify from terminal:
-
-```bash
+``` bash
 docker version
 ```
 
-If this prints client/server info, you’re good.
-
----
-
-## Running Mercator (Windows & macOS)
+------------------------------------------------------------------------
 
 ### 1. Clone the repository
 
-```bash
+``` bash
 git clone https://github.com/maitre-forgeron/mercator.git
 cd mercator
 ```
 
----
+------------------------------------------------------------------------
 
 ### 2. Restore dependencies
 
-```bash
+``` bash
 dotnet restore
 ```
 
----
+------------------------------------------------------------------------
 
-### 3. Run with Aspire
+### 3. Run everything with Aspire
 
-From the repo root, run:
-
-```bash
+``` bash
 aspire run
 ```
 
-This starts the **Mercator.AppHost**, which then orchestrates everything (API + PostgreSQL + dashboard).
+Equivalent:
 
-> If you prefer the explicit .NET command, this is equivalent:
->
-> ```bash
-> dotnet run --project src/Mercator.AppHost
-> ```
+``` bash
+dotnet run --project src/Mercator.AppHost
+```
 
-What happens next:
+This starts:
 
-- PostgreSQL starts automatically
-- Mercator API starts
-- Database connection strings are injected
-- Aspire Dashboard opens in your browser
+-   PostgreSQL
+-   Backend API
+-   Frontend (React + Vite)
+-   Aspire dashboard
 
----
+------------------------------------------------------------------------
 
 ## Aspire Dashboard
 
-Once the AppHost is running, Aspire will print a local dashboard URL, usually:
+Usually available at:
 
-```
-https://localhost:18888
-```
+    https://localhost:18888
 
 From the dashboard you can:
-- View logs
-- Inspect traces
-- Check service health
-- See environment variables and bindings
 
----
+-   View logs
+-   Inspect traces
+-   Check service health
+-   Open frontend & API endpoints
+
+------------------------------------------------------------------------
+
+## Frontend (React + Vite)
+
+The frontend runs via Vite and is managed by Aspire.
+
+Access it using the URL shown in the Aspire dashboard, for example:
+
+    http://localhost:60xxx
+
+> The port is dynamically assigned.
+
+### Frontend → API communication
+
+-   Frontend calls APIs using relative paths:
+
+    ``` ts
+    fetch("/health");
+    ```
+
+-   Vite proxies `/api/*` requests to the backend
+
+-   Everything is same-origin → **no CORS required**
+
+------------------------------------------------------------------------
 
 ## API Access
 
-After startup, the API will be available at a local address printed by Aspire, for example:
+API URL is printed by Aspire, for example:
 
-```
-https://localhost:7xxx
-```
+    http://localhost:5xxx
 
 Swagger (if enabled):
 
-```
-https://localhost:7xxx/swagger
-```
+    http://localhost:5xxx/swagger
 
-The exact port may differ per machine — Aspire manages this automatically.
-
----
+------------------------------------------------------------------------
 
 ## Database
 
-- Database: **PostgreSQL**
-- Runs in a **Docker container** managed by Aspire
-- Connection string is injected into the API at runtime
+-   PostgreSQL runs in Docker
+-   Connection strings are injected automatically
+-   No local DB setup required
 
-You do **not** need to:
-- Install PostgreSQL locally
-- Create the database manually
-- Manually manage connection strings
-
-You **do** need Docker running (see “Start Docker” above).
-
----
+------------------------------------------------------------------------
 
 ## Common Commands
 
-### Stop everything
+Stop everything:
 
-Press:
+    Ctrl + C
 
-```
-Ctrl + C
-```
+Clean & rebuild:
 
-All Aspire-managed services will shut down cleanly.
-
----
-
-### Clean & rebuild (if things get weird)
-
-```bash
+``` bash
 dotnet clean
 dotnet build
 dotnet run --project src/Mercator.AppHost
 ```
 
----
+------------------------------------------------------------------------
 
 ## Troubleshooting
 
 ### Aspire workload not found
 
-```text
-The workload 'aspire' was not found
-```
-
-Fix:
-
-```bash
+``` bash
 dotnet workload install aspire
 ```
 
----
+### Frontend does not start
 
-### Port already in use
+-   Ensure Node.js is installed
+-   Check frontend logs in Aspire dashboard
 
-Aspire auto-selects ports, but if something conflicts:
-- Stop other running services
-- Restart the AppHost
+### Port conflicts
 
----
+Restart the AppHost.
 
-### Database authentication errors
+### Database errors
 
-If PostgreSQL fails to start:
-
-```bash
-dotnet run --project src/Mercator.AppHost
-```
-
-Watch the dashboard logs — Aspire usually reports the root cause clearly.
-
----
+Check Aspire dashboard logs.
