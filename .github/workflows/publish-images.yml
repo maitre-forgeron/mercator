@@ -89,12 +89,16 @@ jobs:
       - name: Compute tags
         id: meta
         shell: bash
+        env:
+          REF_SHA: ${{ steps.ref.outputs.sha }}
+          REF_NAME: ${{ steps.ref.outputs.ref_name }}
+          REF_MODE: ${{ steps.ref.outputs.mode }}
         run: |
           set -euo pipefail
-          SHA="${{ steps.ref.outputs.sha }}"
+          SHA="$REF_SHA"
           SHORT_SHA="${SHA:0:7}"
-          NAME="${{ steps.ref.outputs.ref_name }}"
-          MODE="${{ steps.ref.outputs.mode }}"
+          NAME="$REF_NAME"
+          MODE="$REF_MODE"
 
           PUSH_TAGS="sha-${SHORT_SHA}"
           DEPLOY_TAG="sha-${SHORT_SHA}"
