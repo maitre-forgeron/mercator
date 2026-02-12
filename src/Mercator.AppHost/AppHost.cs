@@ -19,28 +19,32 @@ var mercator = builder.AddProject<Projects.Mercator_Bootstrapper>("mercator-boot
     .WithReference(db);
 
 var web = builder.AddViteApp("web", "../web")
-    .WithReference(mercator)
-    .WithEnvironment("API_PROXY_TARGET", mercator.GetEndpoint("http"));
+    .WithReference(mercator);
+
+
+if (builder.Environment.IsDevelopment())
+{
+    mercator.WithExternalHttpEndpoints();
+
+    web.WithEnvironment("API_PROXY_TARGET", mercator.GetEndpoint("http"));
+}
 
 if (builder.ExecutionContext.IsPublishMode)
 {
-    builder.AddYarp("frontend-server")
-           .WithConfiguration(c =>
-           {
-               c.AddRoute("health", mercator)
-                .WithMatchPath("/health")
-                .WithTransformPathSet("/health");
-               // Always proxy /api requests to backend
-               c.AddRoute("api/{**catch-all}", mercator)
-                .WithTransformPathRemovePrefix("/api");
-           })
-           .WithExternalHttpEndpoints()
-           .PublishWithStaticFiles(web);
-}
+    var proxy = builder.AddYarp("frontend-server")
+                   .WithConfiguration(c =>
+                   {
+                       c.AddRoute("health", mercator)
+                        .WithMatchPath("/health")
+                        .WithTransformPathSet("/health");
+                       // Always proxy /api requests to backend
+                       c.AddRoute("api/{**catch-all}", mercator)
+                        .WithTransformPathRemovePrefix("/api");
+                   })
+                   .WithExternalHttpEndpoints()
+                   .PublishWithStaticFiles(web);
 
-if (builder.Environment.IsDevelopment()) 
-{
-    mercator.WithExternalHttpEndpoints();
+    web.WithEnvironment("API_PROXY_TARGET", proxy.GetEndpoint("http"));
 }
 
 builder.Build().Run();
