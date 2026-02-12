@@ -80,5 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aspire-compose-artifacts
-          path: ./artifacts/compose/*.{txt,yaml}
+          path: |
+            ./artifacts/compose/env.txt
+            ./artifacts/compose/docker-compose.yaml
           if-no-files-found: error
