@@ -69,8 +69,9 @@ jobs:
           cat .env
 
       - name: Validate docker-compose config
-        run: docker compose --env-file ./artifacts/compose/.env config
-        working-directory: ./artifacts/compose
+        run: |
+          cd ./artifacts/compose
+          docker compose --env-file .env config
 
       - name: Prepare artifacts for upload
         run: cp ./artifacts/compose/.env ./artifacts/compose/env.txt
