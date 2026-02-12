@@ -13,12 +13,9 @@ jobs:
   compose:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-
-    env:
-      APPHOST: src/Mercator.AppHost/Mercator.AppHost.csproj
-
+    
     steps:
-      - name: Checkout (same commit that was published)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -33,19 +30,12 @@ jobs:
         run: dotnet tool install --global Aspire.Cli
 
       - name: Generate Docker Compose artifacts
-        shell: bash
         run: |
-          set -euo pipefail
           rm -rf ./artifacts/compose
           mkdir -p ./artifacts/compose
+          aspire publish src/Mercator.AppHost/Mercator.AppHost.csproj -o ./artifacts/compose
 
-          aspire publish "${{ env.APPHOST }}" -o ./artifacts/compose
-
-          echo "Generated:"
-          ls -la ./artifacts/compose
-
-      # Download artifact from the triggering workflow run
-      - name: Download deploy info from Publish Images run
+      - name: Download deploy info
         uses: dawidd6/action-download-artifact@v3
         with:
           run_id: ${{ github.event.workflow_run.id }}
@@ -53,116 +43,41 @@ jobs:
           path: ./artifacts/deploy-info
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fill Aspire .env with published image tag
-        shell: bash
+      - name: Configure .env file
         run: |
           set -euo pipefail
-
-          DEPLOY_INFO_FILE="./artifacts/deploy-info/deploy-info.env"
-          if [[ ! -f "${DEPLOY_INFO_FILE}" ]]; then
-            echo "deploy-info.env not found at ${DEPLOY_INFO_FILE}" >&2
-            exit 1
-          fi
-
-          # Helper: extract a variable value from KEY=VALUE lines, ignoring comments/blank lines.
-          get_var() {
-            local key="$1"
-            awk -F'=' -v k="${key}" '
-              /^[[:space:]]*#/ {next}
-              NF < 2 {next}
-              $1 == k {
-                sub(/^[[:space:]]+/, "", $2)
-                sub(/[[:space:]]+$/, "", $2)
-                print $2
-                exit
-              }
-            ' "${DEPLOY_INFO_FILE}"
-          }
-
-          BOOTSTRAPPER_FULL_REPO="$(get_var BOOTSTRAPPER_FULL_REPO)"
-          FRONTEND_FULL_REPO="$(get_var FRONTEND_FULL_REPO)"
-          DEPLOY_TAG="$(get_var DEPLOY_TAG)"
-          PORT="$(get_var PORT)"
-
-          # Basic presence checks
-          if [[ -z "${BOOTSTRAPPER_FULL_REPO}" || -z "${FRONTEND_FULL_REPO}" || -z "${DEPLOY_TAG}" || -z "${PORT}" ]]; then
-            echo "One or more required variables are missing in deploy-info.env" >&2
-            exit 1
-          fi
-
-          # Validate repository/image names (alphanumeric, ./-_: allowed)
-          if ! [[ "${BOOTSTRAPPER_FULL_REPO}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
-            echo "Invalid BOOTSTRAPPER_FULL_REPO: ${BOOTSTRAPPER_FULL_REPO}" >&2
-            exit 1
-          fi
-          if ! [[ "${FRONTEND_FULL_REPO}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
-            echo "Invalid FRONTEND_FULL_REPO: ${FRONTEND_FULL_REPO}" >&2
-            exit 1
-          fi
-
-          # Validate tag (common docker tag charset: alnum plus ._-)
-          if ! [[ "${DEPLOY_TAG}" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-            echo "Invalid DEPLOY_TAG: ${DEPLOY_TAG}" >&2
-            exit 1
-          fi
-
-          # Validate port (1-65535)
-          if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
-            echo "Invalid PORT: ${PORT}" >&2
-            exit 1
-          fi
-
-          echo "Using:"
-          echo "  BOOTSTRAPPER_FULL_REPO=${BOOTSTRAPPER_FULL_REPO}"
-          echo "  FRONTEND_FULL_REPO=${FRONTEND_FULL_REPO}"
-          echo "  DEPLOY_TAG=${DEPLOY_TAG}"
-          echo "  PORT=${PORT}"
-
+          
+          # Source the deploy info
+          source ./artifacts/deploy-info/deploy-info.env
+          
+          # Validate required variables exist
+          : "${BOOTSTRAPPER_FULL_REPO:?Missing BOOTSTRAPPER_FULL_REPO}"
+          : "${FRONTEND_FULL_REPO:?Missing FRONTEND_FULL_REPO}"
+          : "${DEPLOY_TAG:?Missing DEPLOY_TAG}"
+          : "${PORT:?Missing PORT}"
+          
+          # Update .env file
           cd ./artifacts/compose
-
-          BOOT_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${DEPLOY_TAG}"
-          FRONT_IMAGE="${FRONTEND_FULL_REPO}:${DEPLOY_TAG}"
-          PG_PASSWORD="ci-password"
-
-          upsert () {
-            local key="$1" value="$2"
-            if grep -qE "^${key}=" .env 2>/dev/null; then
-              sed -i "s|^${key}=.*|${key}=${value}|" .env
-            else
-              echo "${key}=${value}" >> .env
-            fi
-          }
-
-          upsert "MERCATOR_BOOTSTRAPPER_IMAGE" "${BOOT_IMAGE}"
-          upsert "FRONTEND_SERVER_IMAGE" "${FRONT_IMAGE}"
-          upsert "MERCATOR_BOOTSTRAPPER_PORT" "${PORT}"
-          upsert "PG_PASSWORD" "${PG_PASSWORD}"
-
-          echo "Final .env:"
+          cat >> .env <<EOF
+          MERCATOR_BOOTSTRAPPER_IMAGE=${BOOTSTRAPPER_FULL_REPO}:${DEPLOY_TAG}
+          FRONTEND_SERVER_IMAGE=${FRONTEND_FULL_REPO}:${DEPLOY_TAG}
+          MERCATOR_BOOTSTRAPPER_PORT=${PORT}
+          PG_PASSWORD=ci-password
+          EOF
+          
+          echo "Generated .env:"
           cat .env
 
       - name: Validate docker-compose config
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd ./artifacts/compose
-          docker compose --env-file .env config
+        run: docker compose --env-file ./artifacts/compose/.env config
+        working-directory: ./artifacts/compose
 
-      - name: Debug compose dir
-        run: |
-          ls -la ./artifacts/compose
-
-      - name: Copy .env to env.txt (artifact-friendly)
+      - name: Prepare artifacts for upload
         run: cp ./artifacts/compose/.env ./artifacts/compose/env.txt
 
-
       - name: Upload compose artifacts
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aspire-compose-artifacts
-          path: |
-            ./artifacts/compose/env.txt
-            ./artifacts/compose/docker-compose.yaml
+          path: ./artifacts/compose/*.{txt,yaml}
           if-no-files-found: error
-
