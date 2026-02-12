@@ -1,10 +1,9 @@
 name: Publish Images
 
 on:
-  # For version tags: run directly on tag push (because workflow_run.head_branch is unreliable/empty for tags)
   push:
     branches:
-        - master
+      - master
     tags:
       - "v*"
 
@@ -15,7 +14,6 @@ permissions:
 
 jobs:
   publish:
-    # Only run if CI passed (use a required status check via branch protection)
     runs-on: ubuntu-latest
 
     env:
@@ -29,35 +27,8 @@ jobs:
       WEB_DIR: src/web
 
     steps:
-      - name: Resolve ref + sha
-        id: ref
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
-            echo "ref_name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "mode=tag" >> "$GITHUB_OUTPUT"
-          else
-            # Push to master
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
-            echo "ref_name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "mode=master" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "Event: ${{ github.event_name }}"
-          echo "Mode: $(cat $GITHUB_OUTPUT | grep '^mode=' | cut -d= -f2)"
-          echo "RefName: $(cat $GITHUB_OUTPUT | grep '^ref_name=' | cut -d= -f2)"
-          echo "SHA: $(cat $GITHUB_OUTPUT | grep '^sha=' | cut -d= -f2)"
-
-      # Safe: checking out from master or tag (both are trusted)
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.ref.outputs.sha }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -78,116 +49,64 @@ jobs:
       - name: Compute tags
         id: meta
         shell: bash
-        env:
-          REF_SHA: ${{ steps.ref.outputs.sha }}
-          REF_NAME: ${{ steps.ref.outputs.ref_name }}
-          REF_MODE: ${{ steps.ref.outputs.mode }}
         run: |
           set -euo pipefail
-          SHA="$REF_SHA"
-          SHORT_SHA="${SHA:0:7}"
-          NAME="$REF_NAME"
-          MODE="$REF_MODE"
-
-          PUSH_TAGS="sha-${SHORT_SHA}"
+          
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          TAGS="sha-${SHORT_SHA}"
           DEPLOY_TAG="sha-${SHORT_SHA}"
-
-          if [[ "$MODE" == "master" ]]; then
-            PUSH_TAGS="${PUSH_TAGS},latest"
-          fi
-
-          # tag push: NAME is like "v1.2.3"
-          if [[ "$MODE" == "tag" && "$NAME" == v* ]]; then
-            VERSION="${NAME#v}"
-            PUSH_TAGS="${PUSH_TAGS},${VERSION}"
+          
+          # Add latest tag for master branch
+          [[ "${{ github.ref }}" == "refs/heads/master" ]] && TAGS="${TAGS},latest"
+          
+          # Add version tag for version tags (v1.2.3)
+          if [[ "${{ github.ref_type }}" == "tag" && "${{ github.ref_name }}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAGS="${TAGS},${VERSION}"
             DEPLOY_TAG="${VERSION}"
           fi
-
+          
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "push_tags=${PUSH_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "push_tags=${TAGS}" >> "$GITHUB_OUTPUT"
           echo "deploy_tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
 
-          echo "Mode: $MODE"
-          echo "Name: $NAME"
-          echo "Short SHA: $SHORT_SHA"
-          echo "Push tags: $PUSH_TAGS"
-          echo "Deploy tag: $DEPLOY_TAG"
-
-      # ---------------------------
-      # Backend (bootstrapper) image
-      # ---------------------------
-      - name: Build local bootstrapper image via .NET (PublishContainer)
+      - name: Build and push bootstrapper image
         shell: bash
         run: |
           set -euo pipefail
-
+          
+          REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
-          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
-
+          
           dotnet publish "${{ env.BOOTSTRAPPER_CSPROJ }}" -c Release \
             /t:PublishContainer \
-            -p:ContainerRepository="$BOOTSTRAPPER_FULL_REPO" \
+            -p:ContainerRepository="$REPO" \
             -p:ContainerImageTag="$LOCAL_TAG"
-
-          echo "Built: $BOOTSTRAPPER_FULL_REPO:$LOCAL_TAG"
-
-      - name: Tag + push bootstrapper to GHCR
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
-          LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
-          SOURCE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${LOCAL_TAG}"
-
+          
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
-          for t in "${TAGS[@]}"; do
-            REMOTE_IMAGE="${BOOTSTRAPPER_FULL_REPO}:${t}"
-            echo "Pushing ${REMOTE_IMAGE}"
-            docker tag "${SOURCE_IMAGE}" "${REMOTE_IMAGE}"
-            docker push "${REMOTE_IMAGE}"
+          for tag in "${TAGS[@]}"; do
+            docker tag "${REPO}:${LOCAL_TAG}" "${REPO}:${tag}"
+            docker push "${REPO}:${tag}"
           done
 
-      # ---------------------------
-      # Aspire publish (generates frontend-server.Dockerfile)
-      # ---------------------------
-      - name: Aspire publish (generate compose + Dockerfiles)
+      - name: Generate Aspire manifests
+        run: |
+          rm -rf "${{ env.PUBLISH_OUT }}"
+          aspire publish "${{ env.APPHOST }}" -o "${{ env.PUBLISH_OUT }}"
+
+      - name: Build and push frontend image
         shell: bash
         run: |
           set -euo pipefail
-
-          rm -rf "${PUBLISH_OUT}"
-          mkdir -p "${PUBLISH_OUT}"
-
-          aspire publish "${APPHOST}" -o "${PUBLISH_OUT}"
-
-          echo "Publish output files:"
-          find "${PUBLISH_OUT}" -maxdepth 5 -type f -print
-
-      # ---------------------------
-      # Frontend: build local web:<hash> stage image expected by frontend-server.Dockerfile
-      # ---------------------------
-      - name: Build local web stage image required by frontend-server.Dockerfile
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          FRONTEND_DOCKERFILE="$(find "${PUBLISH_OUT}" -maxdepth 5 -name 'frontend-server.Dockerfile' -print -quit)"
-          if [[ -z "${FRONTEND_DOCKERFILE}" ]]; then
-            echo "❌ frontend-server.Dockerfile not found under ${PUBLISH_OUT}"
-            exit 1
-          fi
-
-          WEB_IMAGENAME="$(grep -E '^ARG WEB_IMAGENAME=' "${FRONTEND_DOCKERFILE}" | head -n 1 | cut -d= -f2- | tr -d '\r')"
-          if [[ -z "${WEB_IMAGENAME}" ]]; then
-            echo "❌ Could not extract WEB_IMAGENAME from ${FRONTEND_DOCKERFILE}"
-            head -n 20 "${FRONTEND_DOCKERFILE}" || true
-            exit 1
-          fi
-
-          echo "WEB_IMAGENAME expected by YARP Dockerfile: ${WEB_IMAGENAME}"
-
-          cat > /tmp/web.stage.Dockerfile <<'EOF'
+          
+          DOCKERFILE=$(find "${{ env.PUBLISH_OUT }}" -name 'frontend-server.Dockerfile' -print -quit)
+          [[ -n "$DOCKERFILE" ]] || { echo "❌ frontend-server.Dockerfile not found"; exit 1; }
+          
+          WEB_IMAGE=$(grep '^ARG WEB_IMAGENAME=' "$DOCKERFILE" | head -n1 | cut -d= -f2- | tr -d '\r')
+          [[ -n "$WEB_IMAGE" ]] || { echo "❌ Could not extract WEB_IMAGENAME"; exit 1; }
+          
+          # Build web stage image inline
+          docker build -t "$WEB_IMAGE" "${{ env.WEB_DIR }}" -f - <<'EOF'
           FROM node:20-alpine
           WORKDIR /app
           COPY package*.json ./
@@ -195,66 +114,34 @@ jobs:
           COPY . .
           RUN npm run build
           EOF
-
-          echo "Building local web image from ${WEB_DIR} ..."
-          docker build -f /tmp/web.stage.Dockerfile -t "${WEB_IMAGENAME}" "${WEB_DIR}"
-          docker image inspect "${WEB_IMAGENAME}" >/dev/null
-          echo "✅ Local web stage image exists: ${WEB_IMAGENAME}"
-
-      # ---------------------------
-      # Frontend-server: build & push YARP image that contains static files
-      # ---------------------------
-      - name: Build + push frontend-server image (YARP + static files)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          DOCKERFILE="$(find "${PUBLISH_OUT}" -maxdepth 5 -name 'frontend-server.Dockerfile' -print -quit)"
-          if [[ -z "${DOCKERFILE}" ]]; then
-            echo "❌ Could not find frontend-server.Dockerfile in ${PUBLISH_OUT}"
-            exit 1
-          fi
-
-          WEB_IMAGE="$(grep -E '^ARG WEB_IMAGENAME=' "${DOCKERFILE}" | head -n 1 | cut -d= -f2- | tr -d '\r')"
-          docker image inspect "${WEB_IMAGE}" >/dev/null
-
-          FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
+          
+          # Build and push frontend-server
+          REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
           LOCAL_TAG="local-${{ steps.meta.outputs.short_sha }}"
-          DOCKER_DIR="$(dirname "${DOCKERFILE}")"
-
+          
           docker build \
-            -f "${DOCKERFILE}" \
-            --build-arg WEB_IMAGENAME="${WEB_IMAGE}" \
-            -t "${FRONTEND_FULL_REPO}:${LOCAL_TAG}" \
-            "${DOCKER_DIR}"
-
+            -f "$DOCKERFILE" \
+            --build-arg WEB_IMAGENAME="$WEB_IMAGE" \
+            -t "${REPO}:${LOCAL_TAG}" \
+            "$(dirname "$DOCKERFILE")"
+          
           IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.push_tags }}"
-          for t in "${TAGS[@]}"; do
-            REMOTE_IMAGE="${FRONTEND_FULL_REPO}:${t}"
-            echo "Pushing ${REMOTE_IMAGE}"
-            docker tag "${FRONTEND_FULL_REPO}:${LOCAL_TAG}" "${REMOTE_IMAGE}"
-            docker push "${REMOTE_IMAGE}"
+          for tag in "${TAGS[@]}"; do
+            docker tag "${REPO}:${LOCAL_TAG}" "${REPO}:${tag}"
+            docker push "${REPO}:${tag}"
           done
 
-      - name: Write deploy info artifact
+      - name: Create and upload deploy info
         shell: bash
         run: |
-          set -euo pipefail
           mkdir -p ./artifacts
-
-          BOOTSTRAPPER_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}"
-          FRONTEND_FULL_REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}"
-          DEPLOY_TAG="${{ steps.meta.outputs.deploy_tag }}"
-          PORT="8080"
-
+          
           cat > ./artifacts/deploy-info.env <<EOF
-          BOOTSTRAPPER_FULL_REPO=${BOOTSTRAPPER_FULL_REPO}
-          FRONTEND_FULL_REPO=${FRONTEND_FULL_REPO}
-          DEPLOY_TAG=${DEPLOY_TAG}
-          PORT=${PORT}
+          BOOTSTRAPPER_FULL_REPO=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_REPO }}
+          FRONTEND_FULL_REPO=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE_REPO }}
+          DEPLOY_TAG=${{ steps.meta.outputs.deploy_tag }}
+          PORT=8080
           EOF
-
-          cat ./artifacts/deploy-info.env
 
       - name: Upload deploy info
         uses: actions/upload-artifact@v4
