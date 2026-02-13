@@ -23,7 +23,8 @@ public class AddFeature : IEndpoint
             return TypedResults.Created($"/api/catalog/features/{id}", new AddFeatureResponse(id));
         })
             .WithName("AddFeature")
-            .WithSummary("Shows example to add a feature");
+            .WithSummary("Shows example to add a feature")
+            .RequireAuthorization();
     }
 
     private sealed record AddFeatureRequest(string Name);

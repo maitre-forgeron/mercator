@@ -13,6 +13,7 @@ using Mercator.Payments.Api.Extensions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using Scalar.AspNetCore;
 using System.Text;
 
 namespace Mercator.Bootstrapper.Extensions;
@@ -82,25 +83,12 @@ public static class ServiceCollectionExtensions
 
     private static IServiceCollection AddApiExloration(this IServiceCollection services)
     {
-        services.AddOpenApi();
+        services.AddOpenApi(options =>
+        {
+            options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+        });
 
         services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen(options =>
-        {
-            options.SwaggerDoc("v1", new() { Title = "Mercator API", Version = "v1" });
-
-            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-            {
-                Name = "Authorization",
-                Type = SecuritySchemeType.Http,
-                Scheme = "bearer",
-                BearerFormat = "JWT",
-                In = ParameterLocation.Header,
-                Description = "Enter: Bearer {your JWT access token}"
-            });
-
-            options.AddSecurityRequirement(document => new() { [new OpenApiSecuritySchemeReference("Bearer", document)] = [] });
-        });
 
         return services;
     }
@@ -133,8 +121,10 @@ public static class ApplicationBuilderExtensions
     {
         app.MapOpenApi();
 
-        app.UseSwagger();
-        app.UseSwaggerUI();
+        app.MapScalarApiReference(options =>
+        {
+            options.WithTheme(ScalarTheme.Kepler);
+        });
 
         return app;
     }
