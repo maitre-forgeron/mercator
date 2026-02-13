@@ -4,7 +4,6 @@ using Mercator.BuildingBlocks.Application.Abstractions.Pipeline;
 using Mercator.BuildingBlocks.Application.Behaviors;
 using Mercator.BuildingBlocks.Application.Execution;
 using Mercator.Catalog.Api.Extensions;
-using Mercator.Identity.Core.Infrastructure.Extensions;
 using Mercator.Identity.Extensions;
 using Mercator.Logistics.Api.Extensions;
 using Mercator.Notifications.Api.Extensions;
@@ -12,7 +11,6 @@ using Mercator.Orders.Api.Extensions;
 using Mercator.Payments.Api.Extensions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using System.Text;
 
