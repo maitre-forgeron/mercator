@@ -47,14 +47,43 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Source the deploy info
-          source ./artifacts/deploy-info/deploy-info.env
+          # Safely parse the env file (no code execution)
+          while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^#.*$ ]] && continue
+            [[ -z "$key" ]] && continue
+            
+            # Remove quotes if present
+            value="${value%\"}"
+            value="${value#\"}"
+            
+            # Export to environment
+            export "$key=$value"
+          done < ./artifacts/deploy-info/deploy-info.env
           
-          # Validate required variables exist
+          # Validate required variables
           : "${BOOTSTRAPPER_FULL_REPO:?Missing BOOTSTRAPPER_FULL_REPO}"
           : "${FRONTEND_FULL_REPO:?Missing FRONTEND_FULL_REPO}"
           : "${DEPLOY_TAG:?Missing DEPLOY_TAG}"
           : "${PORT:?Missing PORT}"
+          
+          # Validate format (prevent injection)
+          if [[ ! "$BOOTSTRAPPER_FULL_REPO" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+            echo "Invalid BOOTSTRAPPER_FULL_REPO format"
+            exit 1
+          fi
+          if [[ ! "$FRONTEND_FULL_REPO" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+            echo "Invalid FRONTEND_FULL_REPO format"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            echo "Invalid DEPLOY_TAG format"
+            exit 1
+          fi
+          if [[ ! "$PORT" =~ ^[0-9]+$ ]]; then
+            echo "Invalid PORT format"
+            exit 1
+          fi
           
           # Update .env file
           cd ./artifacts/compose
