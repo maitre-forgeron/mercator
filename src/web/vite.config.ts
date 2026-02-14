@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
         target: apiTarget,
         changeOrigin: true,
         secure: false,
-        rewrite: (path: any) => path.replace(/^\/api/, "")
+        rewrite: (path: any) => isDev ? path.replace(/^\/api/, "") : path
       },
       "/health": {
         target: apiTarget,
